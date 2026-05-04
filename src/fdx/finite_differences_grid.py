@@ -4,14 +4,12 @@ Finite Differences Grid Module.
 This module provides a class for building finite difference grids and operators.
 
 The class `Grid1d` is a 1D grid with uniform spacing.
-The class `Grid2d` is a 2D grid with uniform spacing.
-
-The class `Grid1d` provides the following operators:
+It provides the following operators:
 - `Dx`: 1st derivative operator for x-axis
 - `Dx2`: 2nd derivative operator for x-axis
-- `inv_h`: Inverse grid spacing
 
-The class `Grid2d` provides the following operators:
+The class `Grid2d` is a 2D grid with uniform spacing.
+It provides the following operators:
 - `Dx`: 1st derivative operator for x-axis
 - `Dy`: 1st derivative operator for y-axis
 - `Dxy`: Mixed derivative operator for x-axis and y-axis
@@ -20,15 +18,13 @@ The class `Grid2d` provides the following operators:
 - `div`: Divergence operator
 - `curl`: Curl operator
 - `laplacian`: Laplacian operator
-- `inv_hx`: Inverse grid spacing for x-axis
-- `inv_hy`: Inverse grid spacing for y-axis
 
 The class `Grid2d` also provide methods to perform operations on the grid.
-- `Derivative`: Derivative operator
-- `Grad`: Gradient operator
-- `Div`: Divergence operator
-- `Curl`: Curl operator
-- `Laplacian`: Laplacian operator
+- `Derivative(sField: np.ndarray, direction: str)`: Derivative operator
+- `Grad(sField: np.ndarray)`: Gradient operator
+- `Div(vField: list[np.ndarray])`: Divergence operator
+- `Curl(vField: list[np.ndarray])`: Curl operator
+- `Laplacian(sField: np.ndarray)`: Laplacian operator
 """
 
 from enum import Enum, auto
