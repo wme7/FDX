@@ -1,6 +1,6 @@
 [project]
 name = "fdx"
-version = "0.1.0"
+version = "0.2.0"
 description = "A high-order Finite-Difference eXtended (FDX) library for Python."
 readme = "README.md"
 authors = [

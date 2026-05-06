@@ -1,10 +1,3 @@
-def hello() -> str:
-    """
-    Say hello to the world.
-    """
-    message = "Hello from fdx!"
-    return message
+from importlib.metadata import version
 
-
-if __name__ == "__main__":
-    print(hello())
+__version__ = version("fdx")
