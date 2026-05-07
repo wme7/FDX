@@ -56,18 +56,23 @@ def compute_and_save(path: str, t_final: float, frames: int) -> None:
 
     FD = Ω.FiniteDifferenceScheme.COMPACT
     grid = Ω.Grid2d(
-        xa=-GRID_L, xb=GRID_L, nx=GRID_N, ya=-GRID_L, yb=GRID_L, ny=GRID_N, scheme=FD
+        xa=-GRID_L, xb=GRID_L, nx=GRID_N, ya=-GRID_L, yb=0, ny=GRID_N / 2, scheme=FD
     )
     x, y = np.meshgrid(grid.x, grid.y)
 
-    shape = (GRID_N, GRID_N)
+    shape = (GRID_N / 2, GRID_N)
     ds_opts = dict(
         dtype=np.float32, chunks=(1, *shape), compression="gzip", shuffle=True
     )
 
     with h5.File(path, "w") as f:
         f.attrs.update(
-            frames=frames, nx=GRID_N, ny=GRID_N, lx=GRID_L, ly=GRID_L, scheme=str(FD)
+            frames=frames,
+            nx=GRID_N,
+            ny=GRID_N / 2,
+            lx=GRID_L,
+            ly=GRID_L,
+            scheme=str(FD),
         )
 
         grp = f.create_group("grid")
@@ -126,7 +131,7 @@ def build_figure(fields: dict, i0: int = 0):
     vmin = div[i0].min()
     vmax = div[i0].max()
 
-    fig, ax = plt.subplots(figsize=(8, 8), dpi=100)
+    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=100)
 
     # Divergence heatmap
     bg = ax.pcolormesh(x, y, div[i0], cmap="jet", vmin=vmin, vmax=vmax)
@@ -143,14 +148,14 @@ def build_figure(fields: dict, i0: int = 0):
     fig.suptitle(r"\textbf{Unsteady Vector Field}", fontsize=20, y=0.97)
     fig.text(
         0.5,
-        0.93,
+        0.90,
         r"$\vec{v}(x,y,t) \equiv (v_x, v_y) = (\sin(xy + t), \cos(x - y - t))$",
         ha="center",
         va="top",
         fontsize=15,
     )
     time_label = fig.text(
-        0.99, 0.98, rf"$t = {t[i0]:.2f}$", ha="right", va="center", fontsize=12
+        0.92, 0.92, rf"$t = {t[i0]:.2f}$", ha="right", va="center", fontsize=12
     )
 
     return fig, ax, (bg, qv, time_label), (vmin, vmax)
