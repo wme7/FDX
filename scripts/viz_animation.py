@@ -209,7 +209,9 @@ if __name__ == "__main__":
     # save_frames(fig, anim, OUTPUT_DIR)
 
     # Save as GIF
-    anim.save(os.path.join(OUTPUT_DIR, "animation.gif"), writer="pillow", fps=12, dpi=100)
+    anim.save(
+        os.path.join(OUTPUT_DIR, "animation.gif"), writer="pillow", fps=12, dpi=100
+    )
 
     # Close figure
     plt.close()
