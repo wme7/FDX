@@ -42,11 +42,11 @@ grid = Ω.Grid1d(
     scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
     verbose=False,
 )
-x, dx = grid.x, grid.h  # Grid points and spacing
+x, Δx = grid.x, grid.h  # Grid points and spacing
 
 # Compute time step based on CFL condition
-dt = CFL * dx / np.abs(C)
-halfdt, f1o6dt = 0.5 * dt, dt / 6
+Δt = CFL * Δx / np.abs(C)
+halfdt, f1o6dt = Δt / 2, Δt / 6
 
 
 # RHS function for the advection equation
@@ -72,27 +72,27 @@ ax.legend()
 # Time-stepping loop
 while t <= Tend:
     # Update time & iteration count
-    t, it = t + dt, it + 1
+    t, it = t + Δt, it + 1
 
     # Update the solution
     match RK:
         case "Euler":
-            u = u + dt * rhs(u)
+            u = u + Δt * rhs(u)
         case "RK2":
             uo = u.copy()
             k1 = rhs(u)
-            k2 = rhs(u + dt * k1)
+            k2 = rhs(u + Δt * k1)
             u = uo + halfdt * (k1 + k2)
         case "RK3":
-            uo = u + dt * rhs(u)
-            us = f3o4 * u + f1o4 * (uo + dt * rhs(uo))
-            u = f1o3 * u + f2o3 * (us + dt * rhs(us))
+            uo = u + Δt * rhs(u)
+            us = f3o4 * u + f1o4 * (uo + Δt * rhs(uo))
+            u = f1o3 * u + f2o3 * (us + Δt * rhs(us))
         case "RK4":
             uo = u.copy()
             k1 = rhs(u)
             k2 = rhs(u + halfdt * k1)
             k3 = rhs(u + halfdt * k2)
-            k4 = rhs(u + dt * k3)
+            k4 = rhs(u + Δt * k3)
             u = uo + f1o6dt * (k1 + 2 * k2 + 2 * k3 + k4)
 
     # Update the plot
