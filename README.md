@@ -4,6 +4,8 @@
 
 > **Status:** Work in progress. Only 1D and 2D operators are currently implemented and verified. The library is well-suited for small-scale problems, testing, and educational use.
 
+![Animation](./figures/animation/animation.gif)
+
 ---
 
 ## Features
@@ -147,8 +149,9 @@ A set of scripts in the `scripts/` directory verifies the physical implementatio
 
 ```bash
 uv run scripts/use_example.py
-uv run scripts/use_fdx1d_derivatives.py
+uv run scripts/use_fdx1d_derivative.py
 uv run scripts/use_fdx2d_derivatives.py
+uv run scripts/viz_animation.py
 ```
 
 For example, `use_fdx2d_derivatives.py` produces:
