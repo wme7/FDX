@@ -51,6 +51,9 @@ class FiniteDifferenceScheme(Enum):
     EXPLICIT = auto()
     TRIDIAGONAL = auto()
     COMPACT = auto()
+    UPWIND = auto()
+    DOWNWIND = auto()
+    CENTRAL = auto()
     # WENO5 = auto()
     # CRWENO5 = auto()
 
@@ -111,6 +114,61 @@ def build_explicit_fd_matrix(
 
         case BoundaryCondition.GHOST_POINTS:
             _apply_tridiagonal_ghost_points(D, n, r_width)
+
+    if verbose:
+        with np.printoptions(precision=2, suppress=True):
+            print(D.toarray())
+
+    return D.tocsr() * scaling
+
+
+def build_upwind_fd_matrix(
+    n: int,
+    r_width: int,
+    h: float,
+    bc: BoundaryCondition = BoundaryCondition.GHOST_POINTS,
+    verbose: bool = False,
+) -> sp.sparse.csr_matrix:
+    """
+    Build a 1D upwind finite difference differentiation matrix on a uniform grid.
+
+    Constructs a sparse banded matrix whose rows encode upwind finite difference
+    stencils of order ``r_width``. Near boundaries the stencil is  wrapped around
+    (periodic) or introduces ghost points (Dirichlet) to maintain the upwind bias.
+
+    Parameters
+    ----------
+    n : int
+        Number of grid points.
+    r_width : int
+        Width of the upwind stencil (stencil spans ``r_width + 1`` points).
+    h : float
+        Uniform grid spacing.
+    bc : BoundaryCondition, optional
+        Boundary condition type. ``PERIODIC`` applies wrap-around corner entries;
+        ``GHOST_POINTS`` introduces ghost points to maintain upwind bias. Default
+        is ``BoundaryCondition.GHOST_POINTS``.
+    verbose : bool, optional
+        If ``True``, prints the dense matrix before scaling. Default is ``False``.
+
+    Returns
+    -------
+    D : scipy.sparse.csr_matrix, shape (n, n)
+        Sparse differentiation matrix scaled by ``h**(-1)``.
+    """
+    scaling = 1.0 / h
+    offsets = list(range(-r_width, 1))
+    weights = fd_explicit_weights(m=1, x=0, alpha=offsets)
+
+    diags = [np.full(n - k, w) for k, w in zip(offsets, weights)]
+    D = sp.sparse.diags_array(diags, offsets=offsets, shape=(n, n), format="lil")
+
+    match bc:
+        case BoundaryCondition.PERIODIC:
+            _apply_periodic_corners(D, n, offsets, weights)
+
+        case BoundaryCondition.GHOST_POINTS:
+            _apply_upwind_ghost_points(D, r_width)
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
@@ -252,6 +310,17 @@ def _apply_tridiagonal_ghost_points(D, n, r_width):
         D[r, r] = 1
 
 
+def _apply_upwind_ghost_points(D, r_width):
+    """
+    Replace rows near the bottom boundary with an identity matrix.
+    """
+    stencil_size = 2 * r_width + 1
+    for r in range(r_width):
+        # -- bottom boundary:
+        D[r, :stencil_size] = 0  # reset values
+        D[r, r] = 1
+
+
 def _apply_explicit_dirichlet_onesided(D, n, m_derivative, r_width):
     """
     Replace near-boundary rows with one-sided finite difference stencils.
@@ -340,12 +409,21 @@ def _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width):
 # ------------------------------------------------------------------ #
 def _build_1d_operator(n, m, r, h, bc, scheme, verbose) -> sp.sparse.csr_matrix:
     match scheme:
-        case FiniteDifferenceScheme.EXPLICIT:
+        case FiniteDifferenceScheme.EXPLICIT | FiniteDifferenceScheme.CENTRAL:
             return build_explicit_fd_matrix(n, m, r, h, bc, verbose)
         case FiniteDifferenceScheme.TRIDIAGONAL:
             return build_tridiagonal_fd_matrix(n, m, r, h, bc, verbose)
         case FiniteDifferenceScheme.COMPACT:
             return build_tridiagonal_fd_matrix(n, m, 1, h, bc, verbose)
+        case FiniteDifferenceScheme.UPWIND:
+            if m != 1:
+                raise ValueError("Upwind scheme only implemented for 1st derivative.")
+            return build_upwind_fd_matrix(n, r, h, bc, verbose)
+        case FiniteDifferenceScheme.DOWNWIND:
+            if m != 1:
+                raise ValueError("Downwind scheme only implemented for 1st derivative.")
+            D_upwind = build_upwind_fd_matrix(n, r, h, bc, verbose)
+            return -D_upwind.T
 
 
 # ------------------------------------------------------------------ #
@@ -356,6 +434,7 @@ def _uniform_1d_grid_axis(
     b: float,
     n: int,
     bc: BoundaryCondition,
+    scheme: FiniteDifferenceScheme,
     r: int,
 ) -> tuple[float, float, int, bool, float]:
     """
@@ -376,15 +455,49 @@ def _uniform_1d_grid_axis(
         case BoundaryCondition.PERIODIC:
             return a0, b0, n0, False, (b0 - a0) / n0
         case BoundaryCondition.DIRICHLET:
-            return a0, b0, n0, True, (b0 - a0) / (n0 - 1)
+            match scheme:
+                case FiniteDifferenceScheme.UPWIND:
+                    raise ValueError(
+                        "Only ghost points BC supported for upwind scheme."
+                    )
+                case FiniteDifferenceScheme.DOWNWIND:
+                    raise ValueError(
+                        "Only ghost points BC supported for downwind scheme."
+                    )
+                case _:
+                    return a0, b0, n0, True, (b0 - a0) / (n0 - 1)
         case BoundaryCondition.GHOST_POINTS:
-            if r == 0:
-                raise ValueError("BoundaryCondition.GHOST_POINTS requires r >= 1.")
-            h = (b0 - a0) / (n0 - 1)
-            n_grid = n0 + 2 * r
-            a_grid = a0 - r * h
-            b_grid = b0 + r * h
-            return a_grid, b_grid, n_grid, True, h
+            match scheme:
+                case FiniteDifferenceScheme.UPWIND:
+                    if r < 1:
+                        raise ValueError(
+                            "Upwind scheme requires r >= 1 for ghost points."
+                        )
+                    h = (b0 - a0) / (n0 - 1)
+                    n_grid = n0 + r
+                    a_grid = a0 - r * h
+                    b_grid = b0
+                    return a_grid, b_grid, n_grid, True, h
+                case FiniteDifferenceScheme.DOWNWIND:
+                    if r < 1:
+                        raise ValueError(
+                            "Downwind scheme requires r >= 1 for ghost points."
+                        )
+                    h = (b0 - a0) / (n0 - 1)
+                    n_grid = n0 + r
+                    a_grid = a0
+                    b_grid = b0 + r * h
+                    return a_grid, b_grid, n_grid, True, h
+                case _:
+                    if r == 0:
+                        raise ValueError(
+                            "BoundaryCondition.GHOST_POINTS requires r >= 1."
+                        )
+                    h = (b0 - a0) / (n0 - 1)
+                    n_grid = n0 + 2 * r
+                    a_grid = a0 - r * h
+                    b_grid = b0 + r * h
+                    return a_grid, b_grid, n_grid, True, h
         case _:
             raise ValueError(f"Unsupported BoundaryCondition for axis grid: {bc!r}")
 
@@ -406,7 +519,9 @@ class Grid1d:
         self.scheme = scheme
         self.verbose = verbose
 
-        a_grid, b_grid, n_grid, endpoint, h = _uniform_1d_grid_axis(a, b, n, bc, r)
+        a_grid, b_grid, n_grid, endpoint, h = _uniform_1d_grid_axis(
+            a, b, n, bc, scheme, r
+        )
 
         self.a = a_grid
         self.b = b_grid
@@ -458,8 +573,12 @@ class Grid2d:
         self.scheme = scheme
         self.verbose = verbose
 
-        xa_g, xb_g, nx_g, endpoint_x, hx = _uniform_1d_grid_axis(xa, xb, nx, bcx, rx)
-        ya_g, yb_g, ny_g, endpoint_y, hy = _uniform_1d_grid_axis(ya, yb, ny, bcy, ry)
+        xa_g, xb_g, nx_g, endpoint_x, hx = _uniform_1d_grid_axis(
+            xa, xb, nx, bcx, scheme, rx
+        )
+        ya_g, yb_g, ny_g, endpoint_y, hy = _uniform_1d_grid_axis(
+            ya, yb, ny, bcy, scheme, ry
+        )
 
         self.xa = xa_g
         self.xb = xb_g
