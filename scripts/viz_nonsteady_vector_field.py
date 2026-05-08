@@ -36,6 +36,7 @@ OUTPUT_FILE = "fields.h5"
 T_FINAL = 2 * π
 N_FRAMES = 48
 GRID_N = 500  # grid points per axis
+GRID_M = 250  # grid points per axis
 GRID_L = 5.0  # domain half-length
 QUIVER_STEP = 30  # subsample stride for quiver arrows
 FPS = 30
@@ -56,11 +57,11 @@ def compute_and_save(path: str, t_final: float, frames: int) -> None:
 
     FD = Ω.FiniteDifferenceScheme.COMPACT
     grid = Ω.Grid2d(
-        xa=-GRID_L, xb=GRID_L, nx=GRID_N, ya=-GRID_L, yb=0, ny=GRID_N / 2, scheme=FD
+        xa=-GRID_L, xb=GRID_L, nx=GRID_N, ya=-GRID_L, yb=0, ny=GRID_M, scheme=FD
     )
     x, y = np.meshgrid(grid.x, grid.y)
 
-    shape = (GRID_N / 2, GRID_N)
+    shape = (GRID_M, GRID_N)
     ds_opts = dict(
         dtype=np.float32, chunks=(1, *shape), compression="gzip", shuffle=True
     )
@@ -69,7 +70,7 @@ def compute_and_save(path: str, t_final: float, frames: int) -> None:
         f.attrs.update(
             frames=frames,
             nx=GRID_N,
-            ny=GRID_N / 2,
+            ny=GRID_M,
             lx=GRID_L,
             ly=GRID_L,
             scheme=str(FD),
@@ -178,10 +179,10 @@ def make_update(fields: dict, artists, clim):
     return update
 
 
-def save_frames(fig: plt.Figure, anim: animation.FuncAnimation, out_dir: str) -> None:
+def save_frames(fig: plt.Figure, update_func, out_dir: str, n_frames: int) -> None:
     """Render each animation frame to a numbered PNG."""
-    for i, frame in enumerate(anim.new_frame_seq()):
-        anim._draw_frame(frame)
+    for i in range(n_frames):
+        update_func(i)
         fig.savefig(
             os.path.join(out_dir, f"frame_{i:04d}.png"),
             dpi=fig.dpi,
@@ -200,9 +201,10 @@ if __name__ == "__main__":
     fields = load_fields(h5_path)
     fig, ax, artists, clim = build_figure(fields)
 
+    update_func = make_update(fields, artists, clim)
     anim = animation.FuncAnimation(
         fig,
-        make_update(fields, artists, clim),
+        update_func,
         frames=N_FRAMES,
         blit=False,
         interval=1000 / FPS,
@@ -211,7 +213,7 @@ if __name__ == "__main__":
     plt.show()
 
     # Save frames as PNG
-    # save_frames(fig, anim, OUTPUT_DIR)
+    # save_frames(fig, update_func, OUTPUT_DIR, N_FRAMES)
 
     # Save as GIF
     anim.save(
