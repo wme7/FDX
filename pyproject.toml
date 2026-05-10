@@ -16,6 +16,12 @@ dependencies = [
 plot = [
     "matplotlib>=3.10.8",
 ]
+animations = [
+    "fieldanimation>=0.1.3a0",
+    "glfw>=2.10.0",
+    "imgui>=2.0.0",
+    "pillow>=12.1.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]

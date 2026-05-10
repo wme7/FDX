@@ -214,3 +214,7 @@ uv.lock
 
 # HDF5 files
 *.h5
+
+# Figures and animations
+*.png
+*.gif

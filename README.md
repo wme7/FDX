@@ -50,6 +50,27 @@ grid = domain.Grid2d(xa, xb, nx, ya, yb, ny, bcx, bcy, scheme, verbose)
 | `scheme` | `FiniteDifferenceScheme` | `COMPACT`, `EXPLICIT`, or `IMPLICIT` (tridiagonal) |
 | `verbose` | `bool` | Print sparse matrix coefficients |
 
+### `save_animation_frames`
+(only for 2D vector fields)
+
+```python
+utils.save_animation_frames(numpy_field, num_frames, output_dir, width, height, **field_params)
+```
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `numpy_field` | `np.ndarray` | array of shape (ny, nx, 2) representing the components of the vector field to visualize |
+| `num_frames` | `int` | Number of frames to generate for the animation |
+| `output_dir` | `str` | Directory to save the generated frames |
+| `width`, `height` | `int` | Dimensions of the output images (default: 400x400 pixels) |
+| `field_params` | `dict` | Additional parameters for the field visualization (e.g., `speed_factor`) |
+
+The animation visually represents the behavior of the field, with color intensity corresponding to field values and optional parameters to control animation speed, number of particles, etc.
+
+| **Vector Field** $\vec{v}$ | $>0$ | $<0$ |
+|:---------:|:----:|:-----------:|
+| $\nabla\cdot\vec{v}$ | ![positive_div](./figures/animation/Positive_Div.gif) | ![negative_div](./figures/animation/Negative_Div.gif) |
+| $\nabla\times\vec{v}$ | ![positive_curl](./figures/animation/Positive_Curl.gif) | ![negative_curl](./figures/animation/Negative_Curl.gif) |
+
 ---
 
 ## Example Usage
@@ -151,7 +172,8 @@ A set of scripts in the `scripts/` directory verifies the physical implementatio
 uv run scripts/use_example.py
 uv run scripts/use_fdx1d_derivative.py
 uv run scripts/use_fdx2d_derivatives.py
-uv run scripts/viz_animation.py
+uv run scripts/viz_steady_vector_field.py
+uv run scripts/viz_unsteady_vector_field.py
 ```
 
 For example, `use_fdx2d_derivatives.py` produces:
