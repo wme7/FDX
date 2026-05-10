@@ -66,10 +66,10 @@ utils.save_animation_frames(numpy_field, num_frames, output_dir, width, height, 
 
 The animation visually represents the behavior of the field, with color intensity corresponding to field values and optional parameters to control animation speed, number of particles, etc.
 
-| **Vector Field** $\vec{v}$ | $>0$ | $<0$ |
+| **Vector Field** $\vec{v}$ | > 0 | < 0 |
 |:---------:|:----:|:-----------:|
-| $\nabla\cdot\vec{v}$ | ![positive_div](./figures/animation/Positive_Div.gif) | ![negative_div](./figures/animation/Negative_Div.gif) |
-| $\nabla\times\vec{v}$ | ![positive_curl](./figures/animation/Positive_Curl.gif) | ![negative_curl](./figures/animation/Negative_Curl.gif) |
+| div($\vec{v}$) | ![positive_div](./figures/animation/Positive_Div.gif) | ![negative_div](./figures/animation/Negative_Div.gif) |
+| curl($\vec{v}$) | ![positive_curl](./figures/animation/Positive_Curl.gif) | ![negative_curl](./figures/animation/Negative_Curl.gif) |
 
 ---
 
