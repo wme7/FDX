@@ -1,9 +1,11 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import glfw
 import numpy as np
 import OpenGL.GL as gl
 from fieldanimation import FieldAnimation
+from fieldanimation.examples import app as fieldanimation_app
 from fieldanimation.examples.glfwBackend import createWindow, glInfo
 from PIL import Image
 
@@ -48,6 +50,54 @@ def capture_frame(width, height):
     image_array = np.flipud(image_array)  # Flip vertically
 
     return image_array
+
+
+def play_vector_field(width, height, numpy_field):
+    """Play an interactive animation of a vector field.
+
+    Opens an interactive GLApp window displaying the provided vector field
+    with GUI controls for adjusting visualization parameters (speed, decay,
+    color, opacity, point size, etc.).
+
+    Args:
+        width (int): Window width in pixels
+        height (int): Window height in pixels
+        numpy_field (np.ndarray): Vector field as an (m, n, 2) shaped array,
+            where the last dimension contains [U, V] components of the field
+
+    Example:
+        >>> import numpy as np
+        >>> from fdx.utils import play_vector_field
+        >>> # Create a simple vector field
+        >>> m, n = 64, 64
+        >>> Y, X = np.mgrid[-3:3:m*1j, -3:3:n*1j]
+        >>> U = Y.copy()
+        >>> V = -X
+        >>> field = np.dstack((U, V))
+        >>> play_vector_field(800, 800, field)
+    """
+    field = np.asarray(numpy_field, dtype=np.float32)
+    if field.ndim != 3 or field.shape[-1] != 2:
+        raise ValueError(
+            f"numpy_field must be an array with shape (m, n, 2), got {field.shape}"
+        )
+    if not np.isfinite(field).all():
+        raise ValueError("numpy_field must contain only finite values")
+
+    options = SimpleNamespace(
+        image=None,
+        choose=fieldanimation_app.CHOICES[0],
+        use_fragment=False,
+        draw_field=False,
+        fps=False,
+        gui=True,
+    )
+
+    app = fieldanimation_app.GLApp("Vector Field", width, height, options)
+    fieldanimation_app.app = app
+    app._fa.setField(field)
+    app.setTitle("Vector Field")
+    app.run()
 
 
 def save_animation_frames(
