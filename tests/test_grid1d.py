@@ -8,7 +8,7 @@ def test_grid1d_dirichlet_explicit():
         n=100,
         r=1,
         bc=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     size = 100
@@ -23,7 +23,7 @@ def test_grid1d_dirichlet_central():
         n=100,
         r=1,
         bc=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     size = 100
@@ -38,7 +38,7 @@ def test_grid1d_periodic_explicit():
         n=100,
         r=1,
         bc=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     size = 100
@@ -53,7 +53,7 @@ def test_grid1d_ghost_points_explicit():
         n=100,
         r=1,
         bc=Ω.BoundaryCondition.GHOST_POINTS,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     r_width = 1

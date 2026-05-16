@@ -39,7 +39,7 @@ def test_grid2d_dirichlet_explicit():
         ry=1,
         bcx=Ω.BoundaryCondition.DIRICHLET,
         bcy=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     size = 100 * 100
@@ -65,7 +65,7 @@ def test_grid2d_periodic_explicit():
         ry=1,
         bcx=Ω.BoundaryCondition.PERIODIC,
         bcy=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     size = 100 * 100
@@ -91,7 +91,7 @@ def test_grid2d_ghost_points_explicit():
         ry=1,
         bcx=Ω.BoundaryCondition.GHOST_POINTS,
         bcy=Ω.BoundaryCondition.GHOST_POINTS,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         verbose=False,
     )
     r_width = 1
@@ -170,7 +170,7 @@ def test_grid2d_dirichlet_tridiagonal():
         ry=1,
         bcx=Ω.BoundaryCondition.DIRICHLET,
         bcy=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.TRIDIAGONAL,
+        scheme=Ω.FiniteDifferenceScheme.PADE,
         verbose=False,
     )
     size = 10 * 10
@@ -195,7 +195,7 @@ def test_grid2d_periodic_tridiagonal():
         ry=1,
         bcx=Ω.BoundaryCondition.PERIODIC,
         bcy=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.TRIDIAGONAL,
+        scheme=Ω.FiniteDifferenceScheme.PADE,
         verbose=False,
     )
     size = 10 * 10

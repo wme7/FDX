@@ -31,7 +31,7 @@ grid = domain.Grid1d(a, b, n, bc, scheme, verbose)
 | `b` | `float` | Right boundary of the domain |
 | `n` | `int` | Number of grid points |
 | `bc` | `BoundaryCondition` | `DIRICHLET`, `PERIODIC`, or `GHOST_POINTS` |
-| `scheme` | `FiniteDifferenceScheme` | `COMPACT`, `EXPLICIT`, or `IMPLICIT` (tridiagonal) |
+| `scheme` | `FiniteDifferenceScheme` | `COMPACT`, `CENTRAL`, `UPWDIN`, `DOWNWIND`, or `PADE` |
 | `verbose` | `bool` | Print sparse matrix coefficients |
 
 ### `Grid2d`
@@ -47,7 +47,7 @@ grid = domain.Grid2d(xa, xb, nx, ya, yb, ny, bcx, bcy, scheme, verbose)
 | `ya`, `yb` | `float` | Left and right boundaries in y |
 | `ny` | `int` | Number of grid points in y |
 | `bcx`, `bcy` | `BoundaryCondition` | Boundary conditions in x and y |
-| `scheme` | `FiniteDifferenceScheme` | `COMPACT`, `EXPLICIT`, or `IMPLICIT` (tridiagonal) |
+| `scheme` | `FiniteDifferenceScheme` | `COMPACT`, `CENTRAL`, `UPWDIN`, `DOWNWIND`, or `PADE` |
 | `verbose` | `bool` | Print sparse matrix coefficients |
 
 ### `save_animation_frames`

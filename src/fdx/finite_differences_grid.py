@@ -44,16 +44,15 @@ class BoundaryCondition(Enum):
     PERIODIC = auto()
     DIRICHLET = auto()
     GHOST_POINTS = auto()
-    # BRADY_LIVESCU_CONSERVATIVE = auto()
+    # CONSERVATIVE = auto()
 
 
 class FiniteDifferenceScheme(Enum):
-    EXPLICIT = auto()
-    TRIDIAGONAL = auto()
+    CENTRAL = auto()
+    PADE = auto()
     COMPACT = auto()
     UPWIND = auto()
     DOWNWIND = auto()
-    CENTRAL = auto()
     # WENO5 = auto()
     # CRWENO5 = auto()
 
@@ -100,7 +99,7 @@ def build_explicit_fd_matrix(
     """
     scaling = pow(h, -m_derivative)
     offsets = list(range(-r_width, r_width + 1))
-    weights = fd_explicit_weights(m=m_derivative, x=0, alpha=offsets)
+    weights = fd_explicit_weights(m=m_derivative, x=0, alpha=offsets) * scaling
 
     diags = [np.full(n - abs(k), w) for k, w in zip(offsets, weights)]
     D = sp.sparse.diags_array(diags, offsets=offsets, shape=(n, n), format="lil")
@@ -110,23 +109,25 @@ def build_explicit_fd_matrix(
             _apply_periodic_corners(D, n, offsets, weights)
 
         case BoundaryCondition.DIRICHLET:
-            _apply_explicit_dirichlet_onesided(D, n, m_derivative, r_width)
+            _apply_scheme_onesided(D, m_derivative, r_width, scaling)
 
         case BoundaryCondition.GHOST_POINTS:
-            _apply_tridiagonal_ghost_points(D, n, r_width)
+            _apply_ghost_points(D, r_width, "both")
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
-            print(D.toarray())
+            print(D.toarray() / scaling)
 
-    return D.tocsr() * scaling
+    return D.tocsr()
 
 
-def build_upwind_fd_matrix(
+def build_biased_fd_matrix(
     n: int,
-    r_width: int,
-    h: float,
+    m: int = 1,
+    r_width: int = 1,
+    h: float = 1.0,
     bc: BoundaryCondition = BoundaryCondition.GHOST_POINTS,
+    direction: str = "upwind",
     verbose: bool = False,
 ) -> sp.sparse.csr_matrix:
     """
@@ -156,9 +157,15 @@ def build_upwind_fd_matrix(
     D : scipy.sparse.csr_matrix, shape (n, n)
         Sparse differentiation matrix scaled by ``h**(-1)``.
     """
+    if m != 1:
+        raise ValueError("Downwind/Upwind scheme implemented for 1st derivative only.")
+
     scaling = 1.0 / h
-    offsets = list(range(-r_width, 1))
-    weights = fd_explicit_weights(m=1, x=0, alpha=offsets)
+    if direction in ["left", "upwind"]:
+        offsets = list(range(-r_width, 1))
+    elif direction in ["right", "downwind"]:
+        offsets = list(range(0, r_width + 1))
+    weights = fd_explicit_weights(m=1, x=0, alpha=offsets) * scaling
 
     diags = [np.full(n - k, w) for k, w in zip(offsets, weights)]
     D = sp.sparse.diags_array(diags, offsets=offsets, shape=(n, n), format="lil")
@@ -167,17 +174,22 @@ def build_upwind_fd_matrix(
         case BoundaryCondition.PERIODIC:
             _apply_periodic_corners(D, n, offsets, weights)
 
+        case BoundaryCondition.DIRICHLET:
+            if r_width > 1:
+                raise ValueError("Dirichlet BC only available for r_width = 1.")
+            _apply_ghost_points(D, r_width, direction)
+
         case BoundaryCondition.GHOST_POINTS:
-            _apply_upwind_ghost_points(D, r_width)
+            _apply_ghost_points(D, r_width, direction)
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
-            print(D.toarray())
+            print(D.toarray() / scaling)
 
-    return D.tocsr() * scaling
+    return D.tocsr()
 
 
-def build_tridiagonal_fd_matrix(
+def build_pade_fd_matrix(
     n: int,
     m_derivative: int,
     r_width: int,
@@ -235,7 +247,7 @@ def build_tridiagonal_fd_matrix(
             _apply_periodic_corners(B, n, b_offsets, b_weights)
 
         case BoundaryCondition.DIRICHLET:
-            _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width)
+            _apply_pade_onesided(A, B, m_derivative, r_width)
 
         case BoundaryCondition.GHOST_POINTS:
             raise ValueError("Ghost points BC only available for explicit schemes.")
@@ -295,33 +307,23 @@ def _apply_periodic_corners(D, n, offsets, weights):
         D[rows, cols] = w
 
 
-def _apply_tridiagonal_ghost_points(D, n, r_width):
-    """
-    Replace near-boundary rows with an identity matrix.
-    """
-    stencil_size = 2 * r_width + 1
-    for r in range(r_width):
-        # -- top boundary:
-        D[n - 1 - r, n - stencil_size :] = 0  # reset values
-        D[n - 1 - r, n - 1 - r] = 1
-
-        # -- bottom boundary:
-        D[r, :stencil_size] = 0  # reset values
-        D[r, r] = 1
-
-
-def _apply_upwind_ghost_points(D, r_width):
+def _apply_ghost_points(D, r_width, direction):
     """
     Replace rows near the bottom boundary with an identity matrix.
     """
     stencil_size = 2 * r_width + 1
     for r in range(r_width):
-        # -- bottom boundary:
-        D[r, :stencil_size] = 0  # reset values
-        D[r, r] = 1
+        if direction in ["left", "upwind", "both"]:
+            # -- left boundary:
+            D[r, :stencil_size] = 0  # reset values
+            D[r, r] = 1
+        elif direction in ["right", "downwind", "both"]:
+            # -- right boundary:
+            D[-(1 + r), -stencil_size:] = 0  # reset values
+            D[-(1 + r), -(1 + r)] = 1
 
 
-def _apply_explicit_dirichlet_onesided(D, n, m_derivative, r_width):
+def _apply_scheme_onesided(D, m_derivative, r_width, scale):
     """
     Replace near-boundary rows with one-sided finite difference stencils.
 
@@ -346,15 +348,15 @@ def _apply_explicit_dirichlet_onesided(D, n, m_derivative, r_width):
         # -- top boundary:
         a_top = list(range(-r, stencil_size - r))
         w_top = fd_explicit_weights(m=m_derivative, x=0, alpha=a_top)
-        D[r, :stencil_size] = w_top
+        D[r, :stencil_size] = w_top * scale
 
         # -- bottom boundary:
         a_bot = list(range(-(stencil_size - r - 1), r + 1))
         w_bot = fd_explicit_weights(m=m_derivative, x=0, alpha=a_bot)
-        D[n - 1 - r, n - stencil_size :] = w_bot
+        D[-(1 + r), -stencil_size:] = w_bot * scale
 
 
-def _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width):
+def _apply_pade_onesided(A, B, m_derivative, r_width):
     """
     Replace near-boundary rows of a compact scheme with one-sided stencils.
 
@@ -371,8 +373,6 @@ def _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width):
         Tridiagonal LHS matrix of the compact scheme, modified in place.
     B : scipy.sparse.lil_matrix, shape (n, n)
         Explicit RHS matrix of the compact scheme, modified in place.
-    n : int
-        Number of grid points (matrix dimension).
     m_derivative : int
         Order of the derivative to approximate.
     r_width : int
@@ -385,8 +385,8 @@ def _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width):
         # -- reset values near boundaries
         A[r, :stencil_size] = 0
         B[r, :stencil_size] = 0
-        A[n - 1 - r, n - stencil_size :] = 0
-        B[n - 1 - r, n - stencil_size :] = 0
+        A[-(1 + r), -stencil_size :] = 0
+        B[-(1 + r), -stencil_size :] = 0
 
     for r in range(r_width):
         # -- top boundary:
@@ -400,8 +400,8 @@ def _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width):
         a_bot = [-1, 0, 1] if r != 0 else [-1, 0]
         b_bot = list(range(-(b_stencil_size - r - 1), r + 1))
         a_w, b_w = fd_central_weights(m=m_derivative, alpha=a_bot, beta=b_bot)
-        A[n - 1 - r, n - len(a_bot) :] = a_w
-        B[n - 1 - r, n - len(b_bot) :] = b_w
+        A[-(1 + r), -len(a_bot) :] = a_w
+        B[-(1 + r), -len(b_bot) :] = b_w
 
 
 # ------------------------------------------------------------------ #
@@ -409,21 +409,16 @@ def _apply_tridiagonal_dirichlet_onesided(A, B, n, m_derivative, r_width):
 # ------------------------------------------------------------------ #
 def _build_1d_operator(n, m, r, h, bc, scheme, verbose) -> sp.sparse.csr_matrix:
     match scheme:
-        case FiniteDifferenceScheme.EXPLICIT | FiniteDifferenceScheme.CENTRAL:
+        case FiniteDifferenceScheme.CENTRAL:
             return build_explicit_fd_matrix(n, m, r, h, bc, verbose)
-        case FiniteDifferenceScheme.TRIDIAGONAL:
-            return build_tridiagonal_fd_matrix(n, m, r, h, bc, verbose)
+        case FiniteDifferenceScheme.PADE:
+            return build_pade_fd_matrix(n, m, r, h, bc, verbose)
         case FiniteDifferenceScheme.COMPACT:
-            return build_tridiagonal_fd_matrix(n, m, 1, h, bc, verbose)
+            return build_pade_fd_matrix(n, m, 1, h, bc, verbose)
         case FiniteDifferenceScheme.UPWIND:
-            if m != 1:
-                raise ValueError("Upwind scheme only implemented for 1st derivative.")
-            return build_upwind_fd_matrix(n, r, h, bc, verbose)
+            return build_biased_fd_matrix(n, m, r, h, bc, "upwind", verbose)
         case FiniteDifferenceScheme.DOWNWIND:
-            if m != 1:
-                raise ValueError("Downwind scheme only implemented for 1st derivative.")
-            D_upwind = build_upwind_fd_matrix(n, r, h, bc, verbose)
-            return -D_upwind.T
+            return build_biased_fd_matrix(n, m, r, h, bc, "downwind", verbose)
 
 
 # ------------------------------------------------------------------ #
@@ -455,17 +450,7 @@ def _uniform_1d_grid_axis(
         case BoundaryCondition.PERIODIC:
             return a0, b0, n0, False, (b0 - a0) / n0
         case BoundaryCondition.DIRICHLET:
-            match scheme:
-                case FiniteDifferenceScheme.UPWIND:
-                    raise ValueError(
-                        "Only ghost points BC supported for upwind scheme."
-                    )
-                case FiniteDifferenceScheme.DOWNWIND:
-                    raise ValueError(
-                        "Only ghost points BC supported for downwind scheme."
-                    )
-                case _:
-                    return a0, b0, n0, True, (b0 - a0) / (n0 - 1)
+            return a0, b0, n0, True, (b0 - a0) / (n0 - 1)
         case BoundaryCondition.GHOST_POINTS:
             match scheme:
                 case FiniteDifferenceScheme.UPWIND:
@@ -510,7 +495,7 @@ class Grid1d:
         n: int = 100,
         r: int = 1,
         bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
-        scheme: FiniteDifferenceScheme = FiniteDifferenceScheme.EXPLICIT,
+        scheme: FiniteDifferenceScheme = FiniteDifferenceScheme.CENTRAL,
         verbose: bool = False,
     ):
 
@@ -562,7 +547,7 @@ class Grid2d:
         ry: int = 1,
         bcx: BoundaryCondition = BoundaryCondition.DIRICHLET,
         bcy: BoundaryCondition = BoundaryCondition.DIRICHLET,
-        scheme: FiniteDifferenceScheme = FiniteDifferenceScheme.EXPLICIT,
+        scheme: FiniteDifferenceScheme = FiniteDifferenceScheme.CENTRAL,
         verbose: bool = False,
     ):
 

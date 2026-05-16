@@ -14,7 +14,7 @@ def test_operators_identities_periodic_tridiagonal():
         ny=64,
         bcx=Ω.BoundaryCondition.PERIODIC,
         bcy=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.TRIDIAGONAL,
+        scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
     X, Y = np.meshgrid(grid.x, grid.y)
@@ -37,7 +37,7 @@ def test_operators_identities_periodic_explicit():
     grid = Ω.Grid2d(
         bcx=Ω.BoundaryCondition.PERIODIC,
         bcy=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
     )
     # Test function
     X, Y = np.meshgrid(grid.x, grid.y)
@@ -62,7 +62,7 @@ def test_operators_identities_dirichlet_tridiagonal():
         ny=64,
         bcx=Ω.BoundaryCondition.DIRICHLET,
         bcy=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.TRIDIAGONAL,
+        scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
     X, Y = np.meshgrid(grid.x, grid.y)
@@ -87,7 +87,7 @@ def test_operators_identities_dirichlet_explicit():
         ny=64,
         bcx=Ω.BoundaryCondition.DIRICHLET,
         bcy=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.TRIDIAGONAL,
+        scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
     X, Y = np.meshgrid(grid.x, grid.y)
@@ -110,7 +110,7 @@ def test_operators_identities_ghost_points_explicit():
     grid = Ω.Grid2d(
         bcx=Ω.BoundaryCondition.GHOST_POINTS,
         bcy=Ω.BoundaryCondition.GHOST_POINTS,
-        scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
     )
     # Test function
     X, Y = np.meshgrid(grid.x, grid.y)

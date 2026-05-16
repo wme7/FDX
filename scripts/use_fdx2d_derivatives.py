@@ -17,7 +17,7 @@ Nx, Ny = 100, 100  # number of grid points in x and y directions
 Lx, Ly = 1.0, 1.0  # domain length in x and y directions
 rx, ry = 2, 2  # stencil width (total width is 2*r + 1)
 BCx, BCy = Ω.BoundaryCondition.PERIODIC, Ω.BoundaryCondition.DIRICHLET
-FD = Ω.FiniteDifferenceScheme.EXPLICIT
+FD = Ω.FiniteDifferenceScheme.CENTRAL
 
 # Grid setup
 grid = Ω.Grid2d(

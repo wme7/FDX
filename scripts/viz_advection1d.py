@@ -28,9 +28,9 @@ def square_wave(x, center=0.5, width=0.3):
 C = 1.0  # Advection speed
 L = 1.0  # Length of the domain
 NX = 64  # Number of grid points
-RK = "RK3"  # Time-stepping method: "Euler", "RK2", "RK3", or "RK4"
-CFL = 0.5  # CFL number for stability
-Tend = 10.0  # End time of the simulation
+RK = "RK4"  # Time-stepping method: "Euler", "RK2", "RK3", or "RK4"
+CFL = 0.8  # CFL number for stability
+Tend = 100.0  # End time of the simulation
 
 # Use a periodic grid fo x in [0, 1] with 100 points
 grid = Ω.Grid1d(
@@ -39,7 +39,7 @@ grid = Ω.Grid1d(
     n=NX,
     r=2,
     bc=Ω.BoundaryCondition.PERIODIC,
-    scheme=Ω.FiniteDifferenceScheme.EXPLICIT,
+    scheme=Ω.FiniteDifferenceScheme.PADE,
     verbose=False,
 )
 x, Δx = grid.x, grid.h  # Grid points and spacing
@@ -70,9 +70,10 @@ ax.set_ylabel("$u(t)$")
 ax.legend()
 
 # Time-stepping loop
-while t <= Tend:
+while t < Tend:
     # Update time & iteration count
-    t, it = t + Δt, it + 1
+    t += Δt
+    it += 1
 
     # Update the solution
     match RK:
@@ -100,6 +101,15 @@ while t <= Tend:
         line2.set_ydata(u)  # Update the plot with the new solution
         plt.draw()
         plt.pause(0.0001)  # Small delay for animation
+
+    # Adjust time step to ensure we don't exceed the end time
+    if t + Δt > Tend:
+        Δt = Tend - t
+
+# Plot the final solution
+line2.set_ydata(u)
+plt.draw()
+plt.pause(0.0001)
 
 # Keep the plot open
 plt.ioff()  # Disable interactive mode

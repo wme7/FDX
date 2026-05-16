@@ -17,7 +17,7 @@ N = 24  # number of grid points
 L = 3.0  # domain length
 r = 2  # stencil width (total width is 2*r + 1)
 BC = Ω.BoundaryCondition.DIRICHLET
-FD = Ω.FiniteDifferenceScheme.EXPLICIT
+FD = Ω.FiniteDifferenceScheme.CENTRAL
 
 # Create grid
 grid = Ω.Grid1d(a=0, b=L, n=N, r=r, bc=BC, scheme=FD, verbose=True)
