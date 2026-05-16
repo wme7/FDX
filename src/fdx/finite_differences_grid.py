@@ -116,7 +116,7 @@ def build_explicit_fd_matrix(
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
-            print(D.toarray() / scaling)
+            print(D.toarray())
 
     return D.tocsr()
 
@@ -175,16 +175,14 @@ def build_biased_fd_matrix(
             _apply_periodic_corners(D, n, offsets, weights)
 
         case BoundaryCondition.DIRICHLET:
-            if r_width > 1:
-                raise ValueError("Dirichlet BC only available for r_width = 1.")
-            _apply_ghost_points(D, r_width, direction)
+            _apply_biased_onesided(D, m, r_width, scaling, direction)
 
         case BoundaryCondition.GHOST_POINTS:
             _apply_ghost_points(D, r_width, direction)
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
-            print(D.toarray() / scaling)
+            print(D.toarray())
 
     return D.tocsr()
 
@@ -345,15 +343,54 @@ def _apply_scheme_onesided(D, m_derivative, r_width, scale):
     """
     stencil_size = 2 * r_width + 1
     for r in range(r_width):
-        # -- top boundary:
-        a_top = list(range(-r, stencil_size - r))
-        w_top = fd_explicit_weights(m=m_derivative, x=0, alpha=a_top)
-        D[r, :stencil_size] = w_top * scale
+        # -- left boundary:
+        α = list(range(-r, stencil_size - r))
+        ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
+        D[r, :stencil_size] = ω * scale
 
-        # -- bottom boundary:
-        a_bot = list(range(-(stencil_size - r - 1), r + 1))
-        w_bot = fd_explicit_weights(m=m_derivative, x=0, alpha=a_bot)
-        D[-(1 + r), -stencil_size:] = w_bot * scale
+        # -- right boundary:
+        α = list(range(-(stencil_size - r - 1), r + 1))
+        ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
+        D[-(1 + r), -stencil_size:] = ω * scale
+
+
+def _apply_biased_onesided(D, m_derivative, r_width, scale, direction):
+    """
+    Replace near-boundary rows with upwind or downwind finite difference stencils.
+
+    To do
+
+    Parameters
+    ----------
+    D : scipy.sparse.lil_matrix, shape (n, n)
+        Differentiation matrix to modify in place.
+    n : int
+        Number of grid points (matrix dimension).
+    m_derivative : int
+        Order of the derivative to approximate.
+    r_width : int
+        Number of boundary rows to replace on each side.
+    direction : str
+        "upwind" or "downwind" bias for the one-sided stencil.
+    """
+    for r in range(r_width):
+        if direction in ["left", "upwind"]:
+            # -- left boundary:
+            if r == 0:
+                D[r, r] = 1
+            else:
+                α = list(range(-r, 1))
+                ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
+                D[r, : (r + 1)] = ω * scale
+
+        elif direction in ["right", "downwind"]:
+            # -- right boundary:
+            if r == 0:
+                D[-(1 + r), -(1 + r)] = 1
+            else:
+                α = list(range(0, r + 1))
+                ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
+                D[-(1 + r), -(r + 1) :] = ω * scale
 
 
 def _apply_pade_onesided(A, B, m_derivative, r_width):
@@ -385,8 +422,8 @@ def _apply_pade_onesided(A, B, m_derivative, r_width):
         # -- reset values near boundaries
         A[r, :stencil_size] = 0
         B[r, :stencil_size] = 0
-        A[-(1 + r), -stencil_size :] = 0
-        B[-(1 + r), -stencil_size :] = 0
+        A[-(1 + r), -stencil_size:] = 0
+        B[-(1 + r), -stencil_size:] = 0
 
     for r in range(r_width):
         # -- top boundary:
@@ -452,33 +489,21 @@ def _uniform_1d_grid_axis(
         case BoundaryCondition.DIRICHLET:
             return a0, b0, n0, True, (b0 - a0) / (n0 - 1)
         case BoundaryCondition.GHOST_POINTS:
+            if r < 1:
+                raise ValueError("BoundaryCondition.GHOST_POINTS requires r >= 1.")
+            h = (b0 - a0) / (n0 - 1)
             match scheme:
                 case FiniteDifferenceScheme.UPWIND:
-                    if r < 1:
-                        raise ValueError(
-                            "Upwind scheme requires r >= 1 for ghost points."
-                        )
-                    h = (b0 - a0) / (n0 - 1)
                     n_grid = n0 + r
                     a_grid = a0 - r * h
                     b_grid = b0
                     return a_grid, b_grid, n_grid, True, h
                 case FiniteDifferenceScheme.DOWNWIND:
-                    if r < 1:
-                        raise ValueError(
-                            "Downwind scheme requires r >= 1 for ghost points."
-                        )
-                    h = (b0 - a0) / (n0 - 1)
                     n_grid = n0 + r
                     a_grid = a0
                     b_grid = b0 + r * h
                     return a_grid, b_grid, n_grid, True, h
                 case _:
-                    if r == 0:
-                        raise ValueError(
-                            "BoundaryCondition.GHOST_POINTS requires r >= 1."
-                        )
-                    h = (b0 - a0) / (n0 - 1)
                     n_grid = n0 + 2 * r
                     a_grid = a0 - r * h
                     b_grid = b0 + r * h
