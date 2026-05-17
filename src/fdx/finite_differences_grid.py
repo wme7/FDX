@@ -20,7 +20,7 @@ It provides the following operators:
 - `laplacian`: Laplacian operator
 
 The class `Grid2d` also provide methods to perform operations on the grid.
-- `Derivative(sField: np.ndarray, direction: str)`: Derivative operator
+- `Derivative(sField: np.ndarray, axis: str)`: Derivative operator
 - `Grad(sField: np.ndarray)`: Gradient operator
 - `Div(vField: list[np.ndarray])`: Divergence operator
 - `Curl(vField: list[np.ndarray])`: Curl operator
@@ -65,15 +65,18 @@ def build_explicit_fd_matrix(
     m_derivative: int,
     r_width: int,
     h: float,
-    bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
+    bc: BoundaryCondition,
+    bias: str,
     verbose: bool = False,
 ) -> sp.sparse.csr_matrix:
     """
-    Build a 1D explicit finite difference differentiation matrix on a uniform grid.
+    Build a 1D explicit finite-difference differentiation matrix on a uniform grid.
 
-    Constructs a sparse banded matrix whose rows encode centred finite difference
-    stencils of order ``m_derivative``. Near boundaries the stencil is shifted
-    one-sided (Dirichlet) or wrapped around (periodic).
+    Constructs a sparse banded matrix whose rows encode finite-difference
+    stencils of order ``m_derivative``. The optional ``bias`` argument allows
+    choosing centred or one-sided/upwind stencils; near boundaries the
+    stencil is either replaced by one-sided formulas (Dirichlet/ghost-point
+    treatment) or wrapped around for periodic domains.
 
     Parameters
     ----------
@@ -82,13 +85,20 @@ def build_explicit_fd_matrix(
     m_derivative : int
         Order of the derivative to approximate.
     r_width : int
-        Half-width of the centred stencil (stencil spans ``2*r_width + 1`` points).
+        Half-width of the centred stencil (stencil spans ``2*r_width + 1`` points)
+        for centred schemes, or the upwind stencil half-width for biased schemes.
     h : float
         Uniform grid spacing.
-    bc : BoundaryCondition, optional
+    bc : BoundaryCondition
         Boundary condition type. ``PERIODIC`` applies wrap-around corner entries;
-        ``DIRICHLET`` replaces boundary rows with one-sided stencils.
-        Default is ``BoundaryCondition.DIRICHLET``.
+        ``DIRICHLET`` replaces boundary rows with one-sided stencils; ``GHOST_POINTS``
+        introduces ghost-point treatment for explicit schemes.
+    bias : str
+        Stencil bias (case-insensitive): ``"central"``/``"both"`` (centred
+        stencil), ``"left"``/``"upwind"`` (left-biased / upwind), or
+        ``"right"``/``"downwind"`` (right-biased / downwind). For biased
+        schemes the implementation currently supports first-derivative upwind
+        stencils only.
     verbose : bool, optional
         If ``True``, prints the dense matrix before scaling. Default is ``False``.
 
@@ -98,7 +108,24 @@ def build_explicit_fd_matrix(
         Sparse differentiation matrix scaled by ``h**(-m_derivative)``.
     """
     scaling = pow(h, -m_derivative)
-    offsets = list(range(-r_width, r_width + 1))
+
+    # determine stencil offsets based on requested bias
+    if bias in ["both", "central"]:
+        offsets = list(range(-r_width, r_width + 1))
+    elif bias in ["left", "upwind"]:
+        if m_derivative != 1:
+            raise ValueError(
+                "Upwind/Downwind scheme implemented for 1st derivative only."
+            )
+        offsets = list(range(-r_width, 1))
+    elif bias in ["right", "downwind"]:
+        if m_derivative != 1:
+            raise ValueError(
+                "Upwind/Downwind scheme implemented for 1st derivative only."
+            )
+        offsets = list(range(0, r_width + 1))
+    else:
+        raise ValueError(f"Unknown bias: {bias!r}")
     weights = fd_explicit_weights(m=m_derivative, x=0, alpha=offsets) * scaling
 
     diags = [np.full(n - abs(k), w) for k, w in zip(offsets, weights)]
@@ -109,76 +136,10 @@ def build_explicit_fd_matrix(
             _apply_periodic_corners(D, n, offsets, weights)
 
         case BoundaryCondition.DIRICHLET:
-            _apply_scheme_onesided(D, m_derivative, r_width, scaling)
+            _apply_scheme_onesided(D, m_derivative, r_width, scaling, bias)
 
         case BoundaryCondition.GHOST_POINTS:
-            _apply_ghost_points(D, r_width, "both")
-
-    if verbose:
-        with np.printoptions(precision=2, suppress=True):
-            print(D.toarray())
-
-    return D.tocsr()
-
-
-def build_biased_fd_matrix(
-    n: int,
-    m: int = 1,
-    r_width: int = 1,
-    h: float = 1.0,
-    bc: BoundaryCondition = BoundaryCondition.GHOST_POINTS,
-    direction: str = "upwind",
-    verbose: bool = False,
-) -> sp.sparse.csr_matrix:
-    """
-    Build a 1D upwind finite difference differentiation matrix on a uniform grid.
-
-    Constructs a sparse banded matrix whose rows encode upwind finite difference
-    stencils of order ``r_width``. Near boundaries the stencil is  wrapped around
-    (periodic) or introduces ghost points (Dirichlet) to maintain the upwind bias.
-
-    Parameters
-    ----------
-    n : int
-        Number of grid points.
-    r_width : int
-        Width of the upwind stencil (stencil spans ``r_width + 1`` points).
-    h : float
-        Uniform grid spacing.
-    bc : BoundaryCondition, optional
-        Boundary condition type. ``PERIODIC`` applies wrap-around corner entries;
-        ``GHOST_POINTS`` introduces ghost points to maintain upwind bias. Default
-        is ``BoundaryCondition.GHOST_POINTS``.
-    verbose : bool, optional
-        If ``True``, prints the dense matrix before scaling. Default is ``False``.
-
-    Returns
-    -------
-    D : scipy.sparse.csr_matrix, shape (n, n)
-        Sparse differentiation matrix scaled by ``h**(-1)``.
-    """
-    if m != 1:
-        raise ValueError("Downwind/Upwind scheme implemented for 1st derivative only.")
-
-    scaling = 1.0 / h
-    if direction in ["left", "upwind"]:
-        offsets = list(range(-r_width, 1))
-    elif direction in ["right", "downwind"]:
-        offsets = list(range(0, r_width + 1))
-    weights = fd_explicit_weights(m=1, x=0, alpha=offsets) * scaling
-
-    diags = [np.full(n - k, w) for k, w in zip(offsets, weights)]
-    D = sp.sparse.diags_array(diags, offsets=offsets, shape=(n, n), format="lil")
-
-    match bc:
-        case BoundaryCondition.PERIODIC:
-            _apply_periodic_corners(D, n, offsets, weights)
-
-        case BoundaryCondition.DIRICHLET:
-            _apply_biased_onesided(D, m, r_width, scaling, direction)
-
-        case BoundaryCondition.GHOST_POINTS:
-            _apply_ghost_points(D, r_width, direction)
+            _apply_ghost_points(D, r_width, bias)
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
@@ -192,7 +153,7 @@ def build_pade_fd_matrix(
     m_derivative: int,
     r_width: int,
     h: float,
-    bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
+    bc: BoundaryCondition,
     verbose: bool = False,
 ) -> np.ndarray:
     """
@@ -305,76 +266,64 @@ def _apply_periodic_corners(D, n, offsets, weights):
         D[rows, cols] = w
 
 
-def _apply_ghost_points(D, r_width, direction):
+def _apply_ghost_points(D, r_width, bias):
     """
-    Replace rows near the bottom boundary with an identity matrix.
+    Replace rows near the selected boundary with an identity matrix.
+
+    Depending on ``bias``, this writes identity rows at the left boundary
+    (``"left"``/``"upwind"``), right boundary (``"right"``/``"downwind"``),
+    or both boundaries (``"both"``).
     """
     stencil_size = 2 * r_width + 1
     for r in range(r_width):
-        if direction in ["left", "upwind", "both"]:
+        if bias in ["left", "upwind", "both"]:
             # -- left boundary:
             D[r, :stencil_size] = 0  # reset values
             D[r, r] = 1
-        elif direction in ["right", "downwind", "both"]:
+        elif bias in ["right", "downwind", "both"]:
             # -- right boundary:
             D[-(1 + r), -stencil_size:] = 0  # reset values
             D[-(1 + r), -(1 + r)] = 1
 
 
-def _apply_scheme_onesided(D, m_derivative, r_width, scale):
+def _apply_scheme_onesided(D, m_derivative, r_width, scale, bias="both"):
     """
-    Replace near-boundary rows with one-sided finite difference stencils.
+    Replace near-boundary rows with one-sided finite-difference stencils.
 
-    For the ``r_width`` rows closest to each boundary, the centred stencil window
-    is shifted so that it stays within ``[0, n)``. Row ``r`` (0-indexed from each
-    end) uses a stencil whose window spans ``2*r_width + 1`` columns, clamped to
-    the first (top boundary) or last (bottom boundary) columns of the matrix.
+    This function modifies the supplied LIL sparse matrix `D` in-place. The
+    number of grid points ``n`` is inferred from ``D.shape[0]``. For the
+    ``r_width`` rows nearest a boundary the centred stencil window is shifted
+    (clamped) so it remains inside the domain and a one-sided finite-difference
+    stencil is applied. The argument ``scale`` is multiplied into the computed
+    weights before they are written into the matrix.
+
+    The ``bias`` argument controls which boundaries are modified:
+    - ``"both"`` or ``"central"``: replace rows on both left (top) and right
+        (bottom) boundaries using shifted centred stencils of width
+        ``2*r_width + 1``.
+    - ``"left"`` or ``"upwind"``: only replace the first ``r_width`` rows
+        (top boundary) with one-sided/upwind stencils.
+    - ``"right"`` or ``"downwind"``: only replace the last ``r_width`` rows
+        (bottom boundary) with one-sided/downwind stencils.
 
     Parameters
     ----------
     D : scipy.sparse.lil_matrix, shape (n, n)
-        Differentiation matrix to modify in place.
-    n : int
-        Number of grid points (matrix dimension).
+        Differentiation matrix to modify in place (rows near boundaries are
+        overwritten with one-sided stencils).
     m_derivative : int
-        Order of the derivative to approximate.
+        Order of the derivative to approximate (passed to the weight routine).
     r_width : int
-        Number of boundary rows to replace on each side.
+        Number of boundary rows to replace on each side (stencil half-width).
+    scale : float
+        Multiplicative scaling applied to the computed finite-difference
+        weights (typically `h**(-m_derivative)`).
+    bias : str, optional
+        Boundary side to modify: ``"both"`` (default), ``"left"``,
+        ``"right"``, ``"upwind"`` or ``"downwind"``.
     """
-    stencil_size = 2 * r_width + 1
-    for r in range(r_width):
-        # -- left boundary:
-        α = list(range(-r, stencil_size - r))
-        ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
-        D[r, :stencil_size] = ω * scale
-
-        # -- right boundary:
-        α = list(range(-(stencil_size - r - 1), r + 1))
-        ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
-        D[-(1 + r), -stencil_size:] = ω * scale
-
-
-def _apply_biased_onesided(D, m_derivative, r_width, scale, direction):
-    """
-    Replace near-boundary rows with upwind or downwind finite difference stencils.
-
-    To do
-
-    Parameters
-    ----------
-    D : scipy.sparse.lil_matrix, shape (n, n)
-        Differentiation matrix to modify in place.
-    n : int
-        Number of grid points (matrix dimension).
-    m_derivative : int
-        Order of the derivative to approximate.
-    r_width : int
-        Number of boundary rows to replace on each side.
-    direction : str
-        "upwind" or "downwind" bias for the one-sided stencil.
-    """
-    for r in range(r_width):
-        if direction in ["left", "upwind"]:
+    if bias in ["left", "upwind"]:
+        for r in range(r_width):
             # -- left boundary:
             if r == 0:
                 D[r, r] = 1
@@ -383,7 +332,8 @@ def _apply_biased_onesided(D, m_derivative, r_width, scale, direction):
                 ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
                 D[r, : (r + 1)] = ω * scale
 
-        elif direction in ["right", "downwind"]:
+    elif bias in ["right", "downwind"]:
+        for r in range(r_width):
             # -- right boundary:
             if r == 0:
                 D[-(1 + r), -(1 + r)] = 1
@@ -391,6 +341,19 @@ def _apply_biased_onesided(D, m_derivative, r_width, scale, direction):
                 α = list(range(0, r + 1))
                 ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
                 D[-(1 + r), -(r + 1) :] = ω * scale
+
+    elif bias in ["both", "central"]:
+        stencil_size = 2 * r_width + 1
+        for r in range(r_width):
+            # -- left boundary:
+            α = list(range(-r, stencil_size - r))
+            ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
+            D[r, :stencil_size] = ω * scale
+
+            # -- right boundary:
+            α = list(range(-(stencil_size - r - 1), r + 1))
+            ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
+            D[-(1 + r), -stencil_size:] = ω * scale
 
 
 def _apply_pade_onesided(A, B, m_derivative, r_width):
@@ -427,18 +390,18 @@ def _apply_pade_onesided(A, B, m_derivative, r_width):
 
     for r in range(r_width):
         # -- top boundary:
-        a_top = [-1, 0, 1] if r != 0 else [0, 1]
-        b_top = list(range(-r, b_stencil_size - r))
-        a_w, b_w = fd_central_weights(m=m_derivative, alpha=a_top, beta=b_top)
-        A[r, : len(a_top)] = a_w
-        B[r, : len(b_top)] = b_w
+        α = [-1, 0, 1] if r != 0 else [0, 1]
+        β = list(range(-r, b_stencil_size - r))
+        a_w, b_w = fd_central_weights(m=m_derivative, alpha=α, beta=β)
+        A[r, : len(α)] = a_w
+        B[r, : len(β)] = b_w
 
         # -- bottom boundary:
-        a_bot = [-1, 0, 1] if r != 0 else [-1, 0]
-        b_bot = list(range(-(b_stencil_size - r - 1), r + 1))
-        a_w, b_w = fd_central_weights(m=m_derivative, alpha=a_bot, beta=b_bot)
-        A[-(1 + r), -len(a_bot) :] = a_w
-        B[-(1 + r), -len(b_bot) :] = b_w
+        α = [-1, 0, 1] if r != 0 else [-1, 0]
+        β = list(range(-(b_stencil_size - r - 1), r + 1))
+        a_w, b_w = fd_central_weights(m=m_derivative, alpha=α, beta=β)
+        A[-(1 + r), -len(α) :] = a_w
+        B[-(1 + r), -len(β) :] = b_w
 
 
 # ------------------------------------------------------------------ #
@@ -447,15 +410,15 @@ def _apply_pade_onesided(A, B, m_derivative, r_width):
 def _build_1d_operator(n, m, r, h, bc, scheme, verbose) -> sp.sparse.csr_matrix:
     match scheme:
         case FiniteDifferenceScheme.CENTRAL:
-            return build_explicit_fd_matrix(n, m, r, h, bc, verbose)
+            return build_explicit_fd_matrix(n, m, r, h, bc, "central", verbose)
+        case FiniteDifferenceScheme.UPWIND:
+            return build_explicit_fd_matrix(n, m, r, h, bc, "upwind", verbose)
+        case FiniteDifferenceScheme.DOWNWIND:
+            return build_explicit_fd_matrix(n, m, r, h, bc, "downwind", verbose)
         case FiniteDifferenceScheme.PADE:
             return build_pade_fd_matrix(n, m, r, h, bc, verbose)
         case FiniteDifferenceScheme.COMPACT:
             return build_pade_fd_matrix(n, m, 1, h, bc, verbose)
-        case FiniteDifferenceScheme.UPWIND:
-            return build_biased_fd_matrix(n, m, r, h, bc, "upwind", verbose)
-        case FiniteDifferenceScheme.DOWNWIND:
-            return build_biased_fd_matrix(n, m, r, h, bc, "downwind", verbose)
 
 
 # ------------------------------------------------------------------ #
@@ -689,16 +652,16 @@ class Grid2d:
         return 1.0 / self.hy
 
     # Shortcuts to perform operations on the grid
-    def Derivative(self, u: np.ndarray, direction: str) -> np.ndarray:
+    def Derivative(self, u: np.ndarray, axis: str) -> np.ndarray:
         u_flat = u.ravel()  # row-major flatten: index k = j*nx + i
-        if direction == "x":
+        if axis == "x":
             du_flat = self.Dx @ u_flat
-        elif direction == "y":
+        elif axis == "y":
             du_flat = self.Dy @ u_flat
-        elif direction in ["yx", "xy"]:
+        elif axis in ["yx", "xy"]:
             du_flat = self.Dxy @ u_flat
         else:
-            raise ValueError(f"Invalid direction: {direction}")
+            raise ValueError(f"Invalid axis: {axis}")
         return du_flat.reshape(self.ny, self.nx)
 
     def Grad(self, sField: np.ndarray) -> list[np.ndarray]:

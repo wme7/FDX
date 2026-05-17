@@ -126,4 +126,4 @@ def test_operators_identities_ghost_points_explicit():
     errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
     assert errors["div_grad_eq_laplacian"] == np.False_
     assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.False_
+    assert errors["adjoint_consistency"] == np.True_
