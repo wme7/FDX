@@ -22,7 +22,7 @@ from fdx import finite_differences_grid as Ω
 # ── Typography ────────────────────────────────────────────────────────────────
 mpl.rcParams.update(
     {
-        "text.usetex": True,
+        # "text.usetex": True, # use LaTeX for text
         "xtick.labelsize": 14,
         "ytick.labelsize": 14,
     }
