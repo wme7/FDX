@@ -1,12 +1,10 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import glfw
 import numpy as np
 import OpenGL.GL as gl
 from fieldanimation import FieldAnimation
-from fieldanimation.examples import app as fieldanimation_app
-from fieldanimation.examples.glfwBackend import createWindow, glInfo
+from fieldanimation.examples.glfwBackend import glfwApp, glInfo
 from PIL import Image
 
 # ---------------------------------------------------------------------------
@@ -14,174 +12,222 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 
 
-def capture_frame(width, height):
-    """
-    Capture the current OpenGL framebuffer as a numpy array.
+def _load_background_image(
+    background_image: np.ndarray | str | Path | None,
+) -> np.ndarray | None:
+    if background_image is None:
+        return None
+    if isinstance(background_image, (str, Path)):
+        return np.flipud(np.asarray(Image.open(background_image)))
+    return np.asarray(background_image)
+
+
+def _read_framebuffer(width: int, height: int) -> np.ndarray:
+    """Read RGB pixels from the current OpenGL framebuffer (bottom-left origin)."""
+    gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 1)
+    data = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)
+    rgb = np.frombuffer(data, dtype=np.uint8).reshape(height, width, 3)
+    return np.flipud(rgb)
+
+
+def _make_vector_field_viewer(
+    field: np.ndarray,
+    *,
+    width: int,
+    height: int,
+    title: str,
+    background_image: np.ndarray | str | Path | None,
+    draw_field: bool,
+    speed: float,
+    decay: float,
+    decay_boost: float,
+    opacity: float,
+    color: tuple[float, float, float],
+    palette: bool,
+    point_size: float,
+    tracers_count: int,
+    periodic: bool,
+    bg_color: tuple[float, float, float, float],
+    use_fragment_shader: bool,
+) -> type[glfwApp]:
+    field = np.asarray(field, dtype=np.float64)
+    if field.ndim != 3 or field.shape[2] != 2:
+        raise ValueError("field must have shape (m, n, 2)")
+
+    if glInfo() is None:
+        raise RuntimeError("Cannot initialize OpenGL")
+
+    info = glInfo()
+    use_compute = (not use_fragment_shader) and info["glversion"] >= 4.3
+    image = _load_background_image(background_image)
+
+    class Viewer(glfwApp):
+        def __init__(self):
+            super().__init__(title, width, height)
+            self.bg_color = bg_color
+            self._fa = FieldAnimation(
+                self.fwidth, self.fheight, field, use_compute, image
+            )
+            fa = self._fa
+            fa.drawField = draw_field
+            fa.speedFactor = speed
+            fa.decay = decay
+            fa.decayBoost = decay_boost
+            fa.fadeOpacity = opacity
+            fa.color = color
+            fa.palette = palette
+            fa.pointSize = point_size
+            fa.tracersCount = tracers_count
+            fa.periodic = periodic
+            fa.setField(field)
+
+        def renderScene(self):
+            super().renderScene()
+            self._fa.draw()
+
+        def onResize(self, window, w, h):
+            gl.glViewport(0, 0, w, h)
+            self._fa.setSize(w, h)
+
+    return Viewer
+
+
+def show_vector_field(
+    field: np.ndarray,
+    *,
+    width: int = 800,
+    height: int = 600,
+    title: str = "Vector field",
+    background_image: np.ndarray | str | Path | None = None,
+    draw_field: bool = False,
+    speed: float = 0.25,
+    decay: float = 0.003,
+    decay_boost: float = 0.01,
+    opacity: float = 0.996,
+    color: tuple[float, float, float] = (0.5, 1.0, 1.0),
+    palette: bool = True,
+    point_size: float = 1.0,
+    tracers_count: int = 10_000,
+    periodic: bool = True,
+    bg_color: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
+    use_fragment_shader: bool = False,
+    show_fps: bool = False,
+) -> None:
+    """Interactive visualization of a 2D vector field.
 
     Args:
-        width (int): Window width
-        height (int): Window height
-
-    Returns:
-        numpy.ndarray: RGB image data (height, width, 3) as uint8
+        field: (m, n, 2) float array, last axis = (U, V).
+        width, height: framebuffer size in pixels.
+        ...: mirror FieldAnimation / app.py GUI knobs.
     """
-    # Read pixels from the current framebuffer
-    pixels = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)
-
-    # Reshape and flip (OpenGL reads from bottom-left)
-    image_array = np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3)
-    image_array = np.flipud(image_array)  # Flip vertically
-
-    return image_array
-
-
-def play_vector_field(width, height, numpy_field):
-    """Play an interactive animation of a vector field.
-
-    Opens an interactive GLApp window displaying the provided vector field
-    with GUI controls for adjusting visualization parameters (speed, decay,
-    color, opacity, point size, etc.).
-
-    Args:
-        width (int): Window width in pixels
-        height (int): Window height in pixels
-        numpy_field (np.ndarray): Vector field as an (m, n, 2) shaped array,
-            where the last dimension contains [U, V] components of the field
-
-    Example:
-        >>> import numpy as np
-        >>> from fdx.utils import play_vector_field
-        >>> # Create a simple vector field
-        >>> m, n = 64, 64
-        >>> Y, X = np.mgrid[-3:3:m*1j, -3:3:n*1j]
-        >>> U = Y.copy()
-        >>> V = -X
-        >>> field = np.dstack((U, V))
-        >>> play_vector_field(800, 800, field)
-    """
-    field = np.asarray(numpy_field, dtype=np.float32)
-    if field.ndim != 3 or field.shape[-1] != 2:
-        raise ValueError(
-            f"numpy_field must be an array with shape (m, n, 2), got {field.shape}"
-        )
-    if not np.isfinite(field).all():
-        raise ValueError("numpy_field must contain only finite values")
-
-    options = SimpleNamespace(
-        image=None,
-        choose=fieldanimation_app.CHOICES[0],
-        use_fragment=False,
-        draw_field=False,
-        fps=False,
-        gui=True,
+    viewer_cls = _make_vector_field_viewer(
+        field,
+        width=width,
+        height=height,
+        title=title,
+        background_image=background_image,
+        draw_field=draw_field,
+        speed=speed,
+        decay=decay,
+        decay_boost=decay_boost,
+        opacity=opacity,
+        color=color,
+        palette=palette,
+        point_size=point_size,
+        tracers_count=tracers_count,
+        periodic=periodic,
+        bg_color=bg_color,
+        use_fragment_shader=use_fragment_shader,
     )
-
-    app = fieldanimation_app.GLApp("Vector Field", width, height, options)
-    fieldanimation_app.app = app
-    app._fa.setField(field)
-    app.setTitle("Vector Field")
-    app.run()
+    viewer_cls().run()
 
 
 def save_animation_frames(
-    numpy_field, num_frames, output_dir, width=400, height=400, **field_params
-):
-    """
-    Capture animation frames and save as PNG files.
+    field: np.ndarray,
+    num_frames: int,
+    output_dir: str | Path,
+    *,
+    width: int = 400,
+    height: int = 400,
+    warmup_frames: int = 60,
+    frame_prefix: str = "frame_",
+    title: str = "Vector field",
+    background_image: np.ndarray | str | Path | None = None,
+    draw_field: bool = False,
+    speed: float = 0.25,
+    decay: float = 0.003,
+    decay_boost: float = 0.01,
+    opacity: float = 0.996,
+    color: tuple[float, float, float] = (0.5, 1.0, 1.0),
+    palette: bool = True,
+    point_size: float = 1.0,
+    tracers_count: int = 10_000,
+    periodic: bool = True,
+    bg_color: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
+    use_fragment_shader: bool = False,
+) -> list[Path]:
+    """Advance the field animation and write numbered PNG frames for GIF assembly.
+
+    Each frame is one simulation step of the tracer visualization (same renderer
+    as :func:`show_vector_field`). Run ``warmup_frames`` steps first so trails
+    reach a steady look before capture begins.
 
     Args:
-        field_name (str): Name of the vector field to animate
-        num_frames (int): Number of frames to capture
-        output_dir (str): Directory to save PNG files
-        width (int): Window width in pixels
-        height (int): Window height in pixels
-        **field_params: Additional parameters for FieldAnimation
-                        (speed_factor, decay, fade_opacity, etc.)
+        field: (m, n, 2) float array, last axis = (U, V).
+        num_frames: number of PNG files to write.
+        output_dir: directory created if missing; files named ``{prefix}{i:04d}.png``.
+        width, height: framebuffer size in pixels.
+        warmup_frames: simulation steps before the first saved frame.
+        ...: same visualization knobs as :func:`show_vector_field`.
+
+    Returns:
+        Paths of the written PNG files, in frame order.
     """
-    # Create output directory
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    if num_frames < 1:
+        raise ValueError("num_frames must be >= 1")
 
-    # Initialize GLFW
-    if not glfw.init():
-        raise SystemExit("Error initializing GLFW")
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
 
-    # Create an off-screen window
-    glfw.window_hint(glfw.VISIBLE, False)
-    window = createWindow(width, height, "Frame Capture", visible=False)
-
-    if not window:
-        glfw.terminate()
-        raise SystemExit("Could not create OpenGL window")
-
-    glfw.make_context_current(window)
-
-    # Check OpenGL version
-    gl_info = glInfo()
-    if gl_info is None:
-        glfw.terminate()
-        raise SystemExit("Could not initialize OpenGL")
-
-    print(f"OpenGL {gl_info['glversion']:.1f} - {gl_info['renderer'].decode()}")
-
-    # Create FieldAnimation instance
-    use_compute = gl_info["glversion"] >= 4.3
-    fa = FieldAnimation(width, height, numpy_field, computeSahder=use_compute)
-
-    # Apply custom parameters if provided
-    if "speed_factor" in field_params:
-        fa.speedFactor = field_params["speed_factor"]
-    if "decay" in field_params:
-        fa.decay = field_params["decay"]
-    if "fade_opacity" in field_params:
-        fa.fadeOpacity = field_params["fade_opacity"]
-    if "tracers_count" in field_params:
-        fa.tracersCount = field_params["tracers_count"]
-    if "point_size" in field_params:
-        fa.pointSize = field_params["point_size"]
-    if "draw_field" in field_params:
-        fa.drawField = field_params["draw_field"]
-
-    print(f"Capturing {num_frames} frames...")
-    print(f"Speed Factor: {fa.speedFactor}")
-    print(f"Decay: {fa.decay}")
-    print(f"Fade Opacity: {fa.fadeOpacity}")
-    print(f"Number of Tracers: {fa.tracersCount}")
-
-    # Capture frames
-    for frame_num in range(num_frames):
-        # Render frame
-        gl.glClearColor(0.0, 0.0, 0.0, 1.0)
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        fa.draw()
-        gl.glFlush()
-
-        # Capture frame
-        frame_data = capture_frame(width, height)
-
-        # Save as PNG
-        filename = output_path / f"frame_{frame_num:04d}.png"
-        image = Image.fromarray(frame_data, "RGB")
-        image.save(filename)
-
-        if (frame_num + 1) % max(
-            1, num_frames // 10
-        ) == 0 or frame_num == num_frames - 1:
-            print(f"  Saved frame {frame_num + 1}/{num_frames}")
-
-    # Cleanup
-    glfw.make_context_current(None)
-    glfw.destroy_window(window)
-    glfw.terminate()
-
-    name = output_dir.replace("frames_", "").title()
-    print(f"\n✓ All frames saved to: {output_path.absolute()}")
-    print("\nTo create an animated GIF:")
-    print(f"  convert -delay 5 -loop 0 {output_path}/*.png {name}.gif")
-    print("\nor with ImageMagick's magick command:")
-    print(f"  magick -delay 5 -loop 0 {output_path}/*.png {name}.gif")
-    print("\nOr with ffmpeg:")
-    print(
-        f"  ffmpeg -framerate 20 -i {output_path}/frame_%04d.png \
-            -c:v libx264 {name}.mp4"
+    viewer_cls = _make_vector_field_viewer(
+        field,
+        width=width,
+        height=height,
+        title=title,
+        background_image=background_image,
+        draw_field=draw_field,
+        speed=speed,
+        decay=decay,
+        decay_boost=decay_boost,
+        opacity=opacity,
+        color=color,
+        palette=palette,
+        point_size=point_size,
+        tracers_count=tracers_count,
+        periodic=periodic,
+        bg_color=bg_color,
+        use_fragment_shader=use_fragment_shader,
     )
+    viewer = viewer_cls()
+    glfw.hide_window(viewer._window)
+
+    paths: list[Path] = []
+    total_steps = warmup_frames + num_frames
+    try:
+        for step in range(total_steps):
+            gl.glClearColor(*viewer.bg_color)
+            glfw.poll_events()
+            viewer.renderScene()
+            glfw.swap_buffers(viewer._window)
+
+            if step < warmup_frames:
+                continue
+
+            frame_idx = step - warmup_frames
+            path = out / f"{frame_prefix}{frame_idx:04d}.png"
+            Image.fromarray(_read_framebuffer(viewer.fwidth, viewer.fheight)).save(path)
+            paths.append(path)
+    finally:
+        viewer.close()
+
+    return paths

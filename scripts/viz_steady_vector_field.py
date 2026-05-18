@@ -3,13 +3,19 @@ Animate a steady vector field with it divergence visualized as a background.
 
 Capture frames with FieldAnimation and save as PNG files.
 
-Use convert, magick or ffmpeg to create an animation.
+Use convert, magick or ffmpeg to create an animation from frames:
+
+```bash
+magick -delay 5 -loop 0 frames_trigonometric_field/frame_*.png animation.gif
+# or
+ffmpeg -framerate 24 -i frames_trigonometric_field/frame_%04d.png -y animation.gif
+```
 """
 
 import numpy as np
 
 from fdx import finite_differences_grid as Ω
-from fdx.viz import play_vector_field, save_animation_frames
+from fdx import viz
 
 if __name__ == "__main__":
     # Create a 2D grid and compute the vector field and its divergence
@@ -34,20 +40,8 @@ if __name__ == "__main__":
     v_field = np.stack((vx, vy), axis=-1)
     assert v_field.shape == (GRID_N, GRID_N, 2)
 
-    # Play vector field in GUI
-    play_vector_field(width=500, height=500, numpy_field=v_field)
+    # Show vector field
+    viz.show_vector_field(v_field, width=500, height=500)
 
     # Save animation frames
-    save_animation_frames(
-        numpy_field=v_field,
-        num_frames=100,
-        output_dir=f"frames_{name}",
-        width=500,
-        height=500,
-        speed_factor=1.0,
-        decay=0.003,
-        fade_opacity=0.996,
-        tracers_count=10000,
-        point_size=1.0,
-        draw_field=False,
-    )
+    # viz.save_animation_frames(v_field, num_frames=100, output_dir=f"frames_{name}")

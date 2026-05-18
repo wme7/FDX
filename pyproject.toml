@@ -19,7 +19,6 @@ plot = [
 animations = [
     "fieldanimation>=0.1.3a0",
     "glfw>=2.10.0",
-    "imgui>=2.0.0",
     "pillow>=12.1.1",
 ]
 
