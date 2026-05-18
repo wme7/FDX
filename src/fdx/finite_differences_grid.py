@@ -35,6 +35,7 @@ import scipy as sp
 
 from .fornberg_weights import fd_explicit_weights
 from .taylor_table_weights import fd_central_weights
+from .utils import build_banded_matrix
 
 
 # ------------------------------------------------------------------ #
@@ -128,8 +129,7 @@ def build_explicit_fd_matrix(
         raise ValueError(f"Unknown bias: {bias!r}")
     weights = fd_explicit_weights(m=m_derivative, x=0, alpha=offsets) * scaling
 
-    diags = [np.full(n - abs(k), w) for k, w in zip(offsets, weights)]
-    D = sp.sparse.diags_array(diags, offsets=offsets, shape=(n, n), format="lil")
+    D = build_banded_matrix(n, offsets, weights)
 
     match bc:
         case BoundaryCondition.PERIODIC:
@@ -195,10 +195,8 @@ def build_pade_fd_matrix(
     )
 
     # Build sparse banded matrices in LIL (efficient for row-wise assembly)
-    a_diags = [np.full(n - abs(k), w) for k, w in zip(a_offsets, a_weights)]
-    b_diags = [np.full(n - abs(k), w) for k, w in zip(b_offsets, b_weights)]
-    A = sp.sparse.diags_array(a_diags, offsets=a_offsets, shape=(n, n), format="lil")
-    B = sp.sparse.diags_array(b_diags, offsets=b_offsets, shape=(n, n), format="lil")
+    A = build_banded_matrix(n, a_offsets, a_weights)
+    B = build_banded_matrix(n, b_offsets, b_weights)
 
     match bc:
         case BoundaryCondition.PERIODIC:

@@ -9,7 +9,7 @@ Use convert, magick or ffmpeg to create an animation.
 import numpy as np
 
 from fdx import finite_differences_grid as Ω
-from fdx.utils import play_vector_field, save_animation_frames
+from fdx.viz import play_vector_field, save_animation_frames
 
 if __name__ == "__main__":
     # Create a 2D grid and compute the vector field and its divergence
