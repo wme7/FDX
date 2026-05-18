@@ -41,7 +41,28 @@ if __name__ == "__main__":
     assert v_field.shape == (GRID_N, GRID_N, 2)
 
     # Show vector field
-    viz.show_vector_field(v_field, width=500, height=500)
+    viz.show_vector_field(
+        field=v_field, 
+        width=500, 
+        height=500,
+        tracers_count=1000,
+        speed=0.5,
+        point_size=3,
+        decay=0.001,
+    )
 
-    # Save animation frames
-    # viz.save_animation_frames(v_field, num_frames=100, output_dir=f"frames_{name}")
+    # # Save animation frames
+    # paths = viz.save_animation_frames(
+    #     field=v_field,
+    #     width=500,
+    #     height=500,
+    #     tracers_count=1000,
+    #     speed=0.5,
+    #     point_size=3,
+    #     decay=0.001,
+    #     # ---- Parameters for saving animation frames -----
+    #     num_frames=100,
+    #     warmup_frames=80,  # tune for fuller trails
+    #     output_dir=f"frames_{name}",
+    # )
+    # print(paths)
