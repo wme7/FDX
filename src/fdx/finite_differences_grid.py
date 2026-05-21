@@ -35,7 +35,7 @@ import scipy as sp
 
 from .fornberg_weights import fd_explicit_weights
 from .taylor_table_weights import fd_central_weights
-from .utils import build_banded_matrix
+from .utils import build_square_banded_matrix
 
 
 # ------------------------------------------------------------------ #
@@ -129,7 +129,7 @@ def build_explicit_fd_matrix(
         raise ValueError(f"Unknown bias: {bias!r}")
     weights = fd_explicit_weights(m=m_derivative, x=0, alpha=offsets) * scaling
 
-    D = build_banded_matrix(n, offsets, weights)
+    D = build_square_banded_matrix(n, offsets, weights.tolist())
 
     match bc:
         case BoundaryCondition.PERIODIC:
@@ -195,8 +195,8 @@ def build_pade_fd_matrix(
     )
 
     # Build sparse banded matrices in LIL (efficient for row-wise assembly)
-    A = build_banded_matrix(n, a_offsets, a_weights)
-    B = build_banded_matrix(n, b_offsets, b_weights)
+    A = build_square_banded_matrix(n, a_offsets, a_weights.tolist())
+    B = build_square_banded_matrix(n, b_offsets, b_weights.tolist())
 
     match bc:
         case BoundaryCondition.PERIODIC:

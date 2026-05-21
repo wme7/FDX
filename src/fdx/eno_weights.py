@@ -65,3 +65,25 @@ def fd_eno_weights(r_order: int) -> np.ndarray:
         for j in range(0, r_order):
             table[r + 1, j] = c_rj(r_order, r, j)
     return np.fliplr(table)
+
+
+def fd_smooth_indicator_weights(r_order: int) -> list[np.ndarray]:
+    """
+    Table of ENO/WENO substencil smoothness indicator weights.
+    """
+    if r_order == 3:
+        scale = np.array([np.sqrt(13 / 12), 0.5], dtype=float)[:, None]
+        coeffs = np.array(
+            [
+                [[1.0, -2.0, 1.0], [1.0, -4.0, 3.0]],
+                [[1.0, -2.0, 1.0], [1.0, 0.0, -1.0]],
+                [[1.0, -2.0, 1.0], [3.0, -4.0, 1.0]],
+            ],
+            dtype=float,
+        )
+        weights = coeffs * scale
+        return [weights[0], weights[1], weights[2]]
+
+    raise NotImplementedError(
+        "Smooth indicator weights are only implemented for r_order == 3."
+    )

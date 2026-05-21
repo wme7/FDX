@@ -1,5 +1,6 @@
 import numpy as np
 
+from fdx.eno_weights import fd_eno_weights, fd_smooth_indicator_weights
 from fdx.fornberg_weights import fd_explicit_weights
 from fdx.taylor_table_weights import fd_central_weights
 
@@ -332,3 +333,48 @@ def test_WENO_interpolation_stencils_to_left_face():
     coefs = fd_explicit_weights(m=0, x=-0.5, alpha=[-2, -1, 0, 1, 2])
     assert len(coefs) == 5
     assert np.allclose(coefs, [-5 / 128, 15 / 32, 45 / 64, -5 / 32, 3 / 128])
+
+
+# -----------------------------------------------------------------------
+# WENO reconstruction stencil and sub-stencil weights from
+# NASA/CR-97-206253, ICASE Report No 97-65.
+# -----------------------------------------------------------------------
+def test_WENO_reconstruction_stencils_weights():
+    left_biased_stencil = fd_eno_weights(r_order=5)[2, :]
+    right_biased_stencil = fd_eno_weights(r_order=5)[3, :]
+    sub_stencils_coefs = fd_eno_weights(r_order=3)
+    assert sub_stencils_coefs.shape == (4, 3)
+    assert np.allclose(
+        sub_stencils_coefs,
+        [
+            [1 / 3, -7 / 6, 11 / 6],
+            [-1 / 6, 5 / 6, 1 / 3],
+            [1 / 3, 5 / 6, -1 / 6],
+            [11 / 6, -7 / 6, 1 / 3],
+        ],
+    )
+    assert np.allclose(
+        left_biased_stencil, [1 / 30, -13 / 60, 47 / 60, 9 / 20, -1 / 20]
+    )
+    assert np.allclose(
+        right_biased_stencil, [-1 / 20, 9 / 20, 47 / 60, -13 / 60, 1 / 30]
+    )
+
+
+def test_WENO_smooth_indicators_weights():
+    I0, I1, I2 = fd_smooth_indicator_weights(r_order=3)
+    assert len(I0) == 2
+    assert len(I1) == 2
+    assert len(I2) == 2
+
+    scale = np.array([np.sqrt(13 / 12), 0.5], dtype=float)
+    expected0 = np.array([[1.0, -2.0, 1.0], [1.0, -4.0, 3.0]], dtype=float)
+    expected1 = np.array([[1.0, -2.0, 1.0], [1.0, 0.0, -1.0]], dtype=float)
+    expected2 = np.array([[1.0, -2.0, 1.0], [3.0, -4.0, 1.0]], dtype=float)
+
+    assert np.allclose(I0[0], scale[0] * expected0[0])
+    assert np.allclose(I0[1], scale[1] * expected0[1])
+    assert np.allclose(I1[0], scale[0] * expected1[0])
+    assert np.allclose(I1[1], scale[1] * expected1[1])
+    assert np.allclose(I2[0], scale[0] * expected2[0])
+    assert np.allclose(I2[1], scale[1] * expected2[1])
