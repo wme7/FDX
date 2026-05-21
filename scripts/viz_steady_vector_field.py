@@ -42,8 +42,8 @@ if __name__ == "__main__":
 
     # Show vector field
     viz.show_vector_field(
-        field=v_field, 
-        width=500, 
+        field=v_field,
+        width=500,
         height=500,
         tracers_count=1000,
         speed=0.5,
