@@ -108,6 +108,21 @@ def build_lerp_boundaries_matrix(n: int, r: int) -> sp.sparse.csr_matrix:
     return oper.tocsr()
 
 
+def build_mirror_symmetric_operator(mat: sp.sparse.csr_matrix) -> sp.sparse.csr_matrix:
+    """Build a mirror symmetric operator.
+
+    The mirror symmetric operator is obtained by flipping the input operator
+    left-to-right and top-to-bottom.
+
+    Parameters:
+        mat (sp.sparse.csr_matrix): The input operator.
+
+    Returns:
+        sp.sparse.csr_matrix: The mirror symmetric operator.
+    """
+    return sp.sparse.csr_matrix(sp.sparse.lil_matrix(mat).tolil()[::-1, :][:, ::-1])
+
+
 def compute_order_of_accuracy(h: np.ndarray, err: np.ndarray) -> np.ndarray:
     """
     Compute the order of accuracy of a numerical method.

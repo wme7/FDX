@@ -12,6 +12,7 @@ import scipy as sp
 
 from .eno_weights import fd_eno_weights, fd_smooth_indicator_weights
 from .utils import build_lerp_boundaries_matrix as lerp_oper
+from .utils import build_mirror_symmetric_operator as mirror_symmetric
 from .utils import build_periodic_banded_matrix as periodic_oper
 from .utils import build_rectangular_banded_matrix as rect_oper
 
@@ -109,7 +110,6 @@ class Grid1d:
         inv_h = 1 / self.h
         α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
         ωL = fd_eno_weights(r)[:3] * inv_h
-        ωR = fd_eno_weights(r)[1:] * inv_h
         I0, I1, I2 = fd_smooth_indicator_weights(r)
 
         # Build banded operatora depending on the boundary condition
@@ -127,9 +127,9 @@ class Grid1d:
                 self.sL0 = periodic_oper(n_grid, α[0], ωL[0])
                 self.sL1 = periodic_oper(n_grid, α[1], ωL[1])
                 self.sL2 = periodic_oper(n_grid, α[2], ωL[2])
-                self.sR0 = periodic_oper(n_grid, α[0], ωR[0])
-                self.sR1 = periodic_oper(n_grid, α[1], ωR[1])
-                self.sR2 = periodic_oper(n_grid, α[2], ωR[2])
+                self.sR2 = mirror_symmetric(self.sL0)
+                self.sR1 = mirror_symmetric(self.sL1)
+                self.sR0 = mirror_symmetric(self.sL2)
 
             case BoundaryCondition.DIRICHLET:
                 # build the banded matrices for the smoothness indicators
@@ -144,9 +144,9 @@ class Grid1d:
                 self.sL0 = rect_oper(n_grid, α[0], ωL[0], n_gps, r_reset=1)
                 self.sL1 = rect_oper(n_grid, α[1], ωL[1], n_gps, r_reset=1)
                 self.sL2 = rect_oper(n_grid, α[2], ωL[2], n_gps, r_reset=1)
-                self.sR0 = rect_oper(n_grid, α[0], ωR[0], n_gps, l_reset=1)
-                self.sR1 = rect_oper(n_grid, α[1], ωR[1], n_gps, l_reset=1)
-                self.sR2 = rect_oper(n_grid, α[2], ωR[2], n_gps, l_reset=1)
+                self.sR2 = mirror_symmetric(self.sL0)
+                self.sR1 = mirror_symmetric(self.sL1)
+                self.sR0 = mirror_symmetric(self.sL2)
 
             case BoundaryCondition.GHOST_POINTS:
                 n_interior = n_grid - 2 * n_gps
@@ -162,30 +162,20 @@ class Grid1d:
                 self.sL0 = rect_oper(n_interior, α[0], ωL[0], n_gps, r_reset=1)
                 self.sL1 = rect_oper(n_interior, α[1], ωL[1], n_gps, r_reset=1)
                 self.sL2 = rect_oper(n_interior, α[2], ωL[2], n_gps, r_reset=1)
-                self.sR0 = rect_oper(n_interior, α[0], ωR[0], n_gps, l_reset=1)
-                self.sR1 = rect_oper(n_interior, α[1], ωR[1], n_gps, l_reset=1)
-                self.sR2 = rect_oper(n_interior, α[2], ωR[2], n_gps, l_reset=1)
+                self.sR2 = mirror_symmetric(self.sL0)
+                self.sR1 = mirror_symmetric(self.sL1)
+                self.sR0 = mirror_symmetric(self.sL2)
 
         if verbose:
             np.set_printoptions(precision=2, linewidth=120)
-            print(f"β00:\n{self.β00.toarray()}")
-            print(f"β10:\n{self.β10.toarray()}")
-            print(f"β20:\n{self.β20.toarray()}")
-            print(f"β01:\n{self.β01.toarray()}")
-            print(f"β11:\n{self.β11.toarray()}")
-            print(f"β21:\n{self.β21.toarray()}")
-            print(f"sL0:\n{self.sL0.toarray()}")
-            print(f"sL1:\n{self.sL1.toarray()}")
-            print(f"sL2:\n{self.sL2.toarray()}")
-            print(f"sR0:\n{self.sR0.toarray()}")
-            print(f"sR1:\n{self.sR1.toarray()}")
-            print(f"sR2:\n{self.sR2.toarray()}")
+            for name in [
+                "sL0",
+                "sL1",
+                "sL2",
+            ]:
+                print(f"{name}:\n{getattr(self, name).toarray()}")
 
         # Constants
-        # self.c13o12 = float(13 / 12)
-        # self.c1o4 = 0.25
-        self.c13o12 = 1.0
-        self.c1o4 = 1.0
         self.ϵ = 1e-6
 
     @cached_property
@@ -208,9 +198,9 @@ class Grid1d:
         b11 = self.β11 @ u
         b21 = self.β21 @ u
 
-        β0 = self.c13o12 * b00 * b00 + self.c1o4 * b01 * b01 + self.ϵ
-        β1 = self.c13o12 * b10 * b10 + self.c1o4 * b11 * b11 + self.ϵ
-        β2 = self.c13o12 * b20 * b20 + self.c1o4 * b21 * b21 + self.ϵ
+        β0 = b00 * b00 + b01 * b01 + self.ϵ
+        β1 = b10 * b10 + b11 * b11 + self.ϵ
+        β2 = b20 * b20 + b21 * b21 + self.ϵ
 
         α0 = d0 / (β0 * β0)
         α1 = d1 / (β1 * β1)
