@@ -41,11 +41,36 @@ def build_periodic_banded_matrix(
     Returns:
         sp.sparse.csr_matrix: The periodic banded matrix.
     """
-    oper = sp.sparse.lil_matrix((n, n))
-    for row in range(n):
-        for k, w in zip(offsets, weights):
-            oper[row, (row + k) % n] = w
-    return oper.tocsr()
+    rows = np.arange(n)
+    row_idx = np.concatenate([rows] * len(offsets))
+    col_idx = np.concatenate([(rows + k) % n for k in offsets])
+    data = np.concatenate([np.full(n, w, dtype=float) for w in weights])
+    return sp.sparse.coo_matrix((data, (row_idx, col_idx)), shape=(n, n)).tocsr()
+
+
+def build_periodic_tridiagonal_matrix(
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+) -> sp.sparse.csr_matrix:
+    """Build a periodic tridiagonal matrix.
+
+    Parameters:
+        a (numpy 1d array): Sub-diagonal.
+        b (numpy 1d array): Main diagonal.
+        c (numpy 1d array): Super-diagonal.
+    Returns:
+        sp.sparse.csr_matrix: The periodic tridiagonal matrix.
+    """
+    assert len(a) == len(b) == len(c)
+    n = len(b)
+    main = sp.sparse.diags_array(b, offsets=0, shape=(n, n))
+    lower = sp.sparse.diags_array(a[1:], offsets=-1, shape=(n, n))
+    upper = sp.sparse.diags_array(c[:-1], offsets=1, shape=(n, n))
+    corners = sp.sparse.coo_matrix(
+        ([a[0], c[-1]], ([0, n - 1], [n - 1, 0])), shape=(n, n)
+    )
+    return (main + lower + upper + corners).tocsr()
 
 
 def build_rectangular_banded_matrix(
@@ -86,6 +111,33 @@ def build_rectangular_banded_matrix(
         oper_rectangular[-(i + 1), -boundary_width:] = 0
 
     return oper_rectangular.tocsr()
+
+
+def build_rectangular_tridiagonal_matrix(
+    a: np.ndarray, b: np.ndarray, c: np.ndarray, n_ghost_points: int = 0
+) -> sp.sparse.csr_matrix:
+    """Build a square tridiagonal matrix.
+
+    Parameters:
+        a (numpy 1d array): Sub-diagonal.
+        b (numpy 1d array): Main diagonal.
+        c (numpy 1d array): Super-diagonal.
+    Returns:
+        sp.sparse.csr_matrix: The rectangular tridiagonal matrix.
+    """
+    assert len(a) == len(b) == len(c)
+    m, offsets = len(a), [-1, 0, 1]
+    if n_ghost_points > 0:
+        # Build a rectangular tridiagonal matrix with ghost points
+        n = m + 2 * n_ghost_points
+        return sp.sparse.diags_array(
+            [a, b, c], offsets=[n_ghost_points + i for i in offsets], shape=(m, n)
+        ).tocsr()
+    else:
+        # Build a square tridiagonal matrix
+        return sp.sparse.diags_array(
+            [a[1:], b, c[:-1]], offsets=offsets, shape=(m, m)
+        ).tocsr()
 
 
 def build_lerp_boundaries_matrix(n: int, r: int) -> sp.sparse.csr_matrix:
