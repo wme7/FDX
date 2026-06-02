@@ -56,7 +56,7 @@ u = u0.copy()  # Initialize solution array
 
 # Initialize space time array
 nt = 2 + int(Tend / Δt)  # 2: initial condition and final condition
-u_st = np.zeros((NX, NS + 1))
+u_st = np.zeros((len(x), NS + 1))
 u_st[:, 0] = u0.copy()
 freq = int(nt / NS)
 k = 1

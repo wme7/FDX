@@ -84,7 +84,7 @@ class Grid1d:
         b: float = 1.0,
         n: int = 100,
         *,
-        bc: BoundaryCondition = BoundaryCondition.GHOST_POINTS,
+        bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
         scheme: NonOscillatoryScheme = NonOscillatoryScheme.WENO5,
         verbose: bool = False,
     ):
@@ -141,93 +141,6 @@ class Grid1d:
             print(f"outer_R:\n{outer_R.toarray()}")
 
         return outer_L, inner_L, inner_R, outer_R
-
-    @cached_property
-    def weno5_left_substencils(
-        self,
-    ) -> tuple[sp.sparse.csr_matrix, sp.sparse.csr_matrix, sp.sparse.csr_matrix]:
-
-        if self.scheme != NonOscillatoryScheme.WENO5:
-            raise AttributeError(
-                f"weno5_left_substencils is only defined for WENO5, got {self.scheme!r}"
-            )
-
-        n_grid = self.n
-        n_gps = self.n_gps
-        bc = self.bc
-        α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
-        ωL = fd_eno_weights(self.r)[:3] * self.inv_h
-
-        # banded matrices for the WENO5 substencils
-        if bc == BoundaryCondition.PERIODIC:
-            sL0 = periodic_oper(n_grid, α[0], ωL[0])
-            sL1 = periodic_oper(n_grid, α[1], ωL[1])
-            sL2 = periodic_oper(n_grid, α[2], ωL[2])
-
-        elif bc == BoundaryCondition.DIRICHLET:
-            sL0 = rect_oper(n_grid, α[0], ωL[0], n_gps, r_reset=1)
-            sL1 = rect_oper(n_grid, α[1], ωL[1], n_gps, r_reset=1)
-            sL2 = rect_oper(n_grid, α[2], ωL[2], n_gps, r_reset=1)
-
-        elif bc == BoundaryCondition.GHOST_POINTS:
-            n_interior = n_grid - 2 * n_gps
-            sL0 = rect_oper(n_interior, α[0], ωL[0], n_gps, r_reset=1)
-            sL1 = rect_oper(n_interior, α[1], ωL[1], n_gps, r_reset=1)
-            sL2 = rect_oper(n_interior, α[2], ωL[2], n_gps, r_reset=1)
-
-        else:
-            raise ValueError(f"Unsupported BoundaryCondition: {bc!r}")
-
-        if self.verbose:
-            np.set_printoptions(precision=2, linewidth=120)
-            print(f"sL0 ({sL0.shape}):\n{sL0.toarray()}")
-            print(f"sL1 ({sL1.shape}):\n{sL1.toarray()}")
-            print(f"sL2 ({sL2.shape}):\n{sL2.toarray()}")
-
-        return sL0, sL1, sL2
-
-    def pointwise_eval_weno5_left_substencils(self, u: np.ndarray) -> float:
-
-        α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
-        sL = fd_eno_weights(self.r)[:3] * self.inv_h
-        wL = self.pointwise_eval_smoothness_indicators_js(u, "L")
-
-        return (
-            wL[0] * np.dot(u[α[0]], sL[0])
-            + wL[1] * np.dot(u[α[1]], sL[1])
-            + wL[2] * np.dot(u[α[2]], sL[2])
-        )
-
-    def pointwise_eval_weno5_right_substencils(self, u: np.ndarray) -> float:
-
-        α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
-        sR = fd_eno_weights(self.r)[1:] * self.inv_h
-        wR = self.pointwise_eval_smoothness_indicators_js(u, "R")
-
-        return (
-            wR[0] * np.dot(u[α[0]], sR[0])
-            + wR[1] * np.dot(u[α[1]], sR[1])
-            + wR[2] * np.dot(u[α[2]], sR[2])
-        )
-
-    @cached_property
-    def weno5_right_substencils(
-        self,
-    ) -> tuple[sp.sparse.csr_matrix, sp.sparse.csr_matrix, sp.sparse.csr_matrix]:
-
-        # Mirror left substencils: (sR0←sL2, sR1←sL1, sR2←sL0).
-        sL0, sL1, sL2 = self.weno5_left_substencils
-        sR0 = mirror_symmetric(sL2)
-        sR1 = mirror_symmetric(sL1)
-        sR2 = mirror_symmetric(sL0)
-
-        if self.verbose:
-            np.set_printoptions(precision=2, linewidth=120)
-            print(f"sR0 ({sR0.shape}):\n{sR0.toarray()}")
-            print(f"sR1 ({sR1.shape}):\n{sR1.toarray()}")
-            print(f"sR2 ({sR2.shape}):\n{sR2.toarray()}")
-
-        return sR0, sR1, sR2
 
     @cached_property
     def smoothness_indicator_stack(self) -> sp.sparse.csr_matrix:
@@ -295,51 +208,101 @@ class Grid1d:
         β0 = betas[0] ** 2 + betas[3] ** 2 + self.ϵ
         β1 = betas[1] ** 2 + betas[4] ** 2 + self.ϵ
         β2 = betas[2] ** 2 + betas[5] ** 2 + self.ϵ
-
-        α0 = d0 / (β0 * β0)
-        α1 = d1 / (β1 * β1)
-        α2 = d2 / (β2 * β2)
-
+        α0, α1, α2 = d0 / (β0 * β0), d1 / (β1 * β1), d2 / (β2 * β2)
         inv_total = 1.0 / (α0 + α1 + α2)
-
-        w0 = α0 * inv_total
-        w1 = α1 * inv_total
-        w2 = α2 * inv_total
-
+        w0, w1, w2 = α0 * inv_total, α1 * inv_total, α2 * inv_total
         return [w0, w1, w2]
 
-    def pointwise_eval_smoothness_indicators_js(
-        self, u: np.ndarray, side: str
-    ) -> tuple[float, float, float]:
+    @cached_property
+    def weno5_left_substencils_stack(self) -> sp.sparse.csr_matrix:
+
+        if self.scheme != NonOscillatoryScheme.WENO5:
+            raise AttributeError(
+                f"weno5_left_substencils is only defined for WENO5, got {self.scheme!r}"
+            )
+
+        n_grid, n_gps, bc = self.n, self.n_gps, self.bc
+        α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
+        ωL = fd_eno_weights(self.r)[:3] * self.inv_h
+
+        # banded matrices for the WENO5 substencils
+        if bc == BoundaryCondition.PERIODIC:
+            sL0 = periodic_oper(n_grid, α[0], ωL[0])
+            sL1 = periodic_oper(n_grid, α[1], ωL[1])
+            sL2 = periodic_oper(n_grid, α[2], ωL[2])
+
+        elif bc == BoundaryCondition.DIRICHLET:
+            sL0 = rect_oper(n_grid, α[0], ωL[0], n_gps, r_reset=1)
+            sL1 = rect_oper(n_grid, α[1], ωL[1], n_gps, r_reset=1)
+            sL2 = rect_oper(n_grid, α[2], ωL[2], n_gps, r_reset=1)
+
+        elif bc == BoundaryCondition.GHOST_POINTS:
+            n_interior = n_grid - 2 * n_gps
+            sL0 = rect_oper(n_interior, α[0], ωL[0], n_gps, r_reset=1)
+            sL1 = rect_oper(n_interior, α[1], ωL[1], n_gps, r_reset=1)
+            sL2 = rect_oper(n_interior, α[2], ωL[2], n_gps, r_reset=1)
+
+        else:
+            raise ValueError(f"Unsupported BoundaryCondition: {bc!r}")
+
+        if self.verbose:
+            np.set_printoptions(precision=2, linewidth=120)
+            print(f"sL0 ({sL0.shape}):\n{sL0.toarray()}")
+            print(f"sL1 ({sL1.shape}):\n{sL1.toarray()}")
+            print(f"sL2 ({sL2.shape}):\n{sL2.toarray()}")
+
+        return sp.sparse.vstack([sL0, sL1, sL2], format="csr")
+
+    @cached_property
+    def weno5_right_substencils_stack(self) -> sp.sparse.csr_matrix:
+        # Mirror left substencils: (sR0←sL2, sR1←sL1, sR2←sL0).
+        return mirror_symmetric(self.weno5_left_substencils_stack)
+
+    def pointwise_eval_weno5_substencil(self, u: np.ndarray, side: str) -> float:
+        """Pointwise evaluation of the WENO5 substencil.
+
+        Args:
+            u: A length-5 local stencil (indices j-2…j+2 relative to j-point).
+            side: The side of the stencil to evaluate.
+
+        Returns:
+            The pointwise evaluation of the WENO5 substencil.
+
+        Example:
+            >>> u_stencil = u[j-2:j+3]
+            >>> uL_j_half = grid.pointwise_eval_weno5_substencil(u_stencil, "L")
+            >>> uR_j_half = grid.pointwise_eval_weno5_substencil(u_stencil, "R")
+        """
         match side:
             case "left" | "L":
                 d0, d1, d2 = 0.1, 0.6, 0.3
+                s = fd_eno_weights(self.r)[:3] * self.inv_h
             case "right" | "R":
                 d0, d1, d2 = 0.3, 0.6, 0.1
+                s = fd_eno_weights(self.r)[1:] * self.inv_h
             case _:
                 raise ValueError(f"Invalid side: {side!r}")
 
         α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
         I0, I1, I2 = fd_smooth_indicator_weights(self.r)
-        beta0 = np.dot(u[α[0]], I0[0]) + np.dot(u[α[0]], I0[1])
-        beta1 = np.dot(u[α[1]], I1[0]) + np.dot(u[α[1]], I1[1])
-        beta2 = np.dot(u[α[2]], I2[0]) + np.dot(u[α[2]], I2[1])
-
-        β0 = beta0**2 + beta1**2 + self.ϵ
-        β1 = beta1**2 + beta2**2 + self.ϵ
-        β2 = beta2**2 + beta0**2 + self.ϵ
-
-        α0 = d0 / (β0 * β0)
-        α1 = d1 / (β1 * β1)
-        α2 = d2 / (β2 * β2)
-
+        beta00 = np.dot(u[α[0]], I0[0])
+        beta01 = np.dot(u[α[0]], I0[1])
+        beta10 = np.dot(u[α[1]], I1[0])
+        beta11 = np.dot(u[α[1]], I1[1])
+        beta20 = np.dot(u[α[2]], I2[0])
+        beta21 = np.dot(u[α[2]], I2[1])
+        β0 = beta00**2 + beta01**2 + self.ϵ
+        β1 = beta10**2 + beta11**2 + self.ϵ
+        β2 = beta20**2 + beta21**2 + self.ϵ
+        α0, α1, α2 = d0 / β0**2, d1 / β1**2, d2 / β2**2
         inv_total = 1.0 / (α0 + α1 + α2)
+        w0, w1, w2 = α0 * inv_total, α1 * inv_total, α2 * inv_total
 
-        w0 = α0 * inv_total
-        w1 = α1 * inv_total
-        w2 = α2 * inv_total
-
-        return w0, w1, w2
+        return (
+            w0 * np.dot(u[α[0]], s[0])
+            + w1 * np.dot(u[α[1]], s[1])
+            + w2 * np.dot(u[α[2]], s[2])
+        )
 
     def smoothness_indicators_gb(self, u: np.ndarray, side: str) -> list[np.ndarray]:
         match side:
@@ -355,15 +318,9 @@ class Grid1d:
         β1 = betas[1] ** 2 + betas[4] ** 2 + self.ϵ
         β2 = betas[2] ** 2 + betas[5] ** 2 + self.ϵ
 
-        α0 = d0 / (β0 * β0)
-        α1 = d1 / (β1 * β1)
-        α2 = d2 / (β2 * β2)
-
-        inv_total = 1 / (α0 + α1 + α2)
-
-        w0 = α0 * inv_total
-        w1 = α1 * inv_total
-        w2 = α2 * inv_total
+        α0, α1, α2 = d0 / (β0 * β0), d1 / (β1 * β1), d2 / (β2 * β2)
+        inv_total = 1.0 / (α0 + α1 + α2)
+        w0, w1, w2 = α0 * inv_total, α1 * inv_total, α2 * inv_total
 
         match side:
             case "left" | "L":
@@ -391,12 +348,10 @@ class Grid1d:
             v = u
 
         if self.scheme == NonOscillatoryScheme.WENO5:
-            # Compute the smoothness indicators
+            # Evaluate the left-biased WENO reconstruction
             w0L, w1L, w2L = self.smoothness_indicators_js(v, "L")
-
-            # Compute the WENO reconstruction
-            sL0, sL1, sL2 = self.weno5_left_substencils
-            uL = w0L * (sL0 @ v) + w1L * (sL1 @ v) + w2L * (sL2 @ v)
+            sL = (self.weno5_left_substencils_stack @ v).reshape(3, -1)
+            uL = w0L * sL[0] + w1L * sL[1] + w2L * sL[2]
 
         elif self.scheme == NonOscillatoryScheme.CRWENO5:
             # Compute the smoothness indicators
@@ -465,12 +420,10 @@ class Grid1d:
             v = u
 
         if self.scheme == NonOscillatoryScheme.WENO5:
-            # Compute the smoothness indicators
+            # Evaluate the right-biased WENO reconstruction
             w0R, w1R, w2R = self.smoothness_indicators_js(v, "R")
-
-            # Compute the WENO reconstruction
-            sR0, sR1, sR2 = self.weno5_right_substencils
-            uR = w0R * (sR0 @ v) + w1R * (sR1 @ v) + w2R * (sR2 @ v)
+            sR = (self.weno5_right_substencils_stack @ v).reshape(3, -1)
+            uR = w0R * sR[0] + w1R * sR[1] + w2R * sR[2]
 
         elif self.scheme == NonOscillatoryScheme.CRWENO5:
             # Compute the smoothness indicators
