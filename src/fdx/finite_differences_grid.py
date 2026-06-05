@@ -584,6 +584,12 @@ class Grid2d:
         )
 
     @cached_property
+    def Dx_1d_T(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.nx, 1, self.rx, self.hx, self.bcx, self.scheme, self.verbose
+        ).T
+
+    @cached_property
     def Dy_1d(self) -> sp.sparse.csr_matrix:
         return _build_1d_operator(
             self.ny, 1, self.ry, self.hy, self.bcy, self.scheme, self.verbose
@@ -651,13 +657,12 @@ class Grid2d:
 
     # Shortcuts to perform operations on the grid
     def Derivative(self, u: np.ndarray, axis: str) -> np.ndarray:
-        u_flat = u.ravel()  # row-major flatten: index k = j*nx + i
         if axis == "x":
-            du_flat = self.Dx @ u_flat
+            du_flat = u @ self.Dx_1d_T
         elif axis == "y":
-            du_flat = self.Dy @ u_flat
+            du_flat = self.Dy_1d @ u
         elif axis in ["yx", "xy"]:
-            du_flat = self.Dxy @ u_flat
+            du_flat = self.Dy_1d @ (u @ self.Dx_1d_T)
         else:
             raise ValueError(f"Invalid axis: {axis}")
         return du_flat.reshape(self.ny, self.nx)

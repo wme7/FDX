@@ -1,17 +1,19 @@
 # Visualization of 1D Burgers' equation using Matplotlib and FDX library.
 
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from fdx import essentially_nonoscillatory_grid as Ω
+from fdx import time_integrators as τ
+
+FIGURES_DIR = Path(__file__).resolve().parent.parent / "figures" / "invicid_burgers1d"
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Constants
 π = np.pi
-f1o3, f2o3 = 1 / 3, 2 / 3
-f1o4, f3o4 = 1 / 4, 3 / 4
-half, f1o6 = 1 / 2, 1 / 6
 
 
 # Define initial condition functions
@@ -27,9 +29,11 @@ def square_jump(x):
 L = 1.0  # Length of the domain
 NX = 200  # Number of grid points
 NS = 10  # Number of snapshots
-RK = "RK3"  # Time-stepping method: "Euler", "RK2", "RK3", or "RK4"
+RK = "RK3"  # Time-stepping method: "Euler/RK1", "RK2", "RK3", or "RK4"
 CFL = 0.5  # CFL number for stability
 Tend = 0.25  # End time of the simulation
+
+# ----------------------------- setup ----------------------------- #
 
 grid = Ω.Grid1d(
     a=0,
@@ -43,7 +47,7 @@ x, Δx = grid.x, grid.h  # Grid points and spacing
 
 
 # RHS function for the Burgers' equation
-def rhs(u):
+def burgers_rhs(u):
     return np.where(u > 0, -u * (grid.Dx_upwind(u)), -u * (grid.Dx_downwind(u)))
 
 
@@ -73,7 +77,9 @@ ax.set_ylabel("$u(t)$")
 ax.grid()
 ax.legend()
 
-# Time-stepping loop
+# ----------------------------- driver ----------------------------- #
+
+rk_scheme = τ.RungeKutta.from_name(RK)
 tStart = time.process_time()
 while t < Tend:
     # Update time & iteration count
@@ -81,23 +87,7 @@ while t < Tend:
     it += 1
 
     # Update the solution
-    match RK:
-        case "Euler":
-            u += Δt * rhs(u)
-        case "RK2":
-            k1 = rhs(u)
-            k2 = rhs(u + Δt * k1)
-            u += half * Δt * (k1 + k2)
-        case "RK3":
-            uo = u + Δt * rhs(u)
-            us = f3o4 * u + f1o4 * (uo + Δt * rhs(uo))
-            u = f1o3 * u + f2o3 * (us + Δt * rhs(us))
-        case "RK4":
-            k1 = rhs(u)
-            k2 = rhs(u + half * Δt * k1)
-            k3 = rhs(u + half * Δt * k2)
-            k4 = rhs(u + Δt * k3)
-            u += f1o6 * Δt * (k1 + 2 * k2 + 2 * k3 + k4)
+    u = rk_scheme.step(burgers_rhs, u, Δt)
 
     # Capture snapshot
     if it % freq == 0:
@@ -118,19 +108,24 @@ while t < Tend:
 elapsed = time.process_time() - tStart
 print(f"CPU time: {elapsed:.4f} s")
 
+# ------------------------- post-processing ------------------------- #
 
 # Keep the plot open
 plt.ioff()  # Disable interactive mode
 
-
 # Plot the solution
 fig, ax = plt.subplots()
-for j in range(1, NS):
-    ax.plot(x, u_st[:, j], linewidth=1)
+time_legend = [f"t = {t:.2f}" for t in np.linspace(0, Tend, NS + 1)]
+for j in range(0, NS):
+    ax.plot(x, u_st[:, j], linewidth=1, label=time_legend[j])
 ax.set_xlabel(r"$X$")
 ax.set_ylabel(r"$U$")
 ax.set_xlim(x.min(), x.max())
 ax.grid(False)
+ax.legend()
 fig.tight_layout()
-fig.savefig("invicid_burgers1d.pdf")
+out_snap = FIGURES_DIR / "invicid_burgers1d_snapshots.png"
+out_snap.parent.mkdir(parents=True, exist_ok=True)
+fig.savefig(out_snap, dpi=140, bbox_inches="tight")
+print(f"Saved snapshots: {out_snap}")
 plt.show()
