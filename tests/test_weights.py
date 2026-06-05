@@ -303,7 +303,8 @@ def test_Fornberg_1998_Table_4_2nd_order_compact_scheme():
 
 
 # -----------------------------------------------------------------------
-# WENO interpolation stencisl and sub-stencil weights from http://dx.doi.org/10.4249/scholarpedia.9709
+# WENO interpolation stencisl and sub-stencil weights from
+# http://dx.doi.org/10.4249/scholarpedia.9709
 # -----------------------------------------------------------------------
 def test_WENO_interpolation_stencils_to_right_face():
     coefs = fd_explicit_weights(m=0, x=0.5, alpha=[-2, -1, 0])
