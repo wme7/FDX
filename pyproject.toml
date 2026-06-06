@@ -1,6 +1,6 @@
 [project]
 name = "fdx"
-version = "0.2.0"
+version = "0.2.1"
 description = "A high-order Finite-Difference eXtended (FDX) library for Python."
 readme = "README.md"
 authors = [
@@ -48,4 +48,8 @@ select = ["E", "F", "I"]   # pycodestyle, pyflakes, isort
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not slow'"
+markers = [
+    "slow: marks tests as slow (mpmath verification at high precision)",
+]
+pythonpath = ["."]

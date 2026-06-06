@@ -20,8 +20,7 @@ BC = Ω.BoundaryCondition.DIRICHLET
 FD = Ω.FiniteDifferenceScheme.CENTRAL
 
 # Create grid
-grid = Ω.Grid1d(a=0, b=L, n=N, r=r, bc=BC, scheme=FD, verbose=True)
-print(f"grid spacing: h = {grid.h}")
+grid = Ω.Grid1d(a=0, b=L, n=N, scheme=FD, r_width=r, bc=BC, verbose=True)
 
 # Set Test function
 match grid.bc:
@@ -62,7 +61,7 @@ l1_list = np.zeros(len(N_list))
 
 for i, n in enumerate(N_list):
     # Create numerical grid
-    grid = Ω.Grid1d(a=0, b=L, n=n, r=r, bc=BC, scheme=FD)
+    grid = Ω.Grid1d(a=0, b=L, n=n, scheme=FD, r_width=r, bc=BC)
 
     # Compute grid spacing
     h_list[i] = grid.h

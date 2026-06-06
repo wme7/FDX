@@ -1,4 +1,4 @@
-# Visualization of 1D Advection using Matplotlib and FDX project
+# Visualization of 1D Advection using Matplotlib and FDX library.
 
 import time
 from pathlib import Path
@@ -6,6 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+# from fdx import essentially_nonoscillatory_grid as Ω
 from fdx import finite_differences_grid as Ω
 from fdx import time_integrators as τ
 
@@ -32,7 +33,7 @@ def square_wave(x, center=0.5, width=0.3):
 # Simulation parameters
 C = 1.0  # Advection speed
 L = 1.0  # Length of the domain
-NX = 64  # Number of grid points
+NX = 32  # Number of grid points
 NS = 10  # Number of snapshots
 RK = "RK4"  # Time-stepping method: "Euler/RK1", "RK2", "RK3", or "RK4"
 CFL = 0.8  # CFL number for stability
@@ -45,7 +46,6 @@ grid = Ω.Grid1d(
     a=0,
     b=L,
     n=NX,
-    r=2,
     bc=Ω.BoundaryCondition.PERIODIC,
     scheme=Ω.FiniteDifferenceScheme.PADE,
     verbose=False,
@@ -54,8 +54,12 @@ x, Δx = grid.x, grid.h  # Grid points and spacing
 
 
 # RHS function for the advection equation
-def advection_rhs(u):
+def upwind_rhs(u):
     return -C * (grid.Dx @ u)
+
+
+def upwind_WENO_rhs(u):
+    return -C * (grid.Dx_upwind(u))
 
 
 # Set initial condition, time and iteration count
@@ -82,6 +86,12 @@ fig, ax = plt.subplots()
 ax.set_xlabel("$X$")
 ax.set_ylabel("$u(t)$")
 ax.legend()
+
+
+# Define RHS function for the advection equation
+def advection_rhs(u):
+    return upwind_rhs(u)
+
 
 # ----------------------------- driver ----------------------------- #
 

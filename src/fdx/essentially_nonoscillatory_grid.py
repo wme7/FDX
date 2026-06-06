@@ -1,9 +1,29 @@
 """
 Weighted Essentially Non-Oscillatory Grid Module.
 
-This module provides a class for building finite difference grids and operators.
+This module provides classes for building uniform Cartesian grids and
+nonlinear ENO/WENO spatial operators.
+
+The class ``Grid1d`` is a 1D grid with uniform spacing.  It provides
+upwind-biased first-derivative operators via WENO5 or CRWENO5 reconstruction
+at cell interfaces:
+
+- ``Dx_upwind`` / ``Dx_downwind``: left- and right-biased ∂/∂x
+
+The class ``Grid2d`` is a 2D tensor-product grid built from two independent
+``Grid1d`` axes.  Because WENO/CRWENO operators are state-dependent and
+nonlinear, 2D derivatives are applied by dimension splitting (row/column
+slices), not by Kronecker products of fixed sparse matrices:
+
+- ``Dx_upwind`` / ``Dx_downwind``: ∂/∂x along each row (axis ``x``)
+- ``Dy_upwind`` / ``Dy_downwind``: ∂/∂y along each column (axis ``y``)
+- ``Derivative(u, axis, bias)``: convenience dispatcher for the above
+
+Field layout matches ``finite_differences_grid.Grid2d``: arrays are
+``(ny, nx)`` with row-major flattening ``index = j * nx + i``.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum, auto
 from functools import cached_property
 
@@ -38,15 +58,14 @@ class NonOscillatoryScheme(Enum):
 
 
 # ------------------------------------------------------------------ #
-#  Grid Classes                                                      #
+#  Grid Helper Functions                                             #
 # ------------------------------------------------------------------ #
 def _uniform_1d_grid_axis(
     a: float,
     b: float,
     n: int,
     bc: BoundaryCondition,
-    scheme: NonOscillatoryScheme,
-    r: int,
+    n_gps: int,
 ) -> tuple[float, float, int, bool, float, int]:
     """Uniform 1D grid axis parameters consistent with `Grid1d`.
 
@@ -56,8 +75,8 @@ def _uniform_1d_grid_axis(
         raise ValueError(f"Axis grid requires n >= 2, got n={n}.")
     if not (b > a):
         raise ValueError(f"Axis grid requires b > a, got a={a}, b={b}.")
-    if r < 0:
-        raise ValueError(f"Stencil half-width r must be >= 0, got r={r}.")
+    if bc == BoundaryCondition.GHOST_POINTS and n_gps < 3:
+        raise ValueError(f"Number of ghost points must be >= 3, got n_gps={n_gps}.")
 
     a0, b0, n0 = float(a), float(b), int(n)
 
@@ -65,18 +84,18 @@ def _uniform_1d_grid_axis(
         case BoundaryCondition.PERIODIC:
             return a0, b0, n0, False, (b0 - a0) / n0, 0
         case BoundaryCondition.DIRICHLET:
-            return a0, b0, n0, True, (b0 - a0) / (n0 - 1), r - 1
+            return a0, b0, n0, True, (b0 - a0) / (n0 - 1), 2  # 2 virtual ghost points
         case BoundaryCondition.GHOST_POINTS:
-            # build a uniform grid with three ghost points on each side
             h = (b0 - a0) / (n0 - 1)
-            n_grid = n0 + 2 * r
-            a_grid = a0 - r * h
-            b_grid = b0 + r * h
-            return a_grid, b_grid, n_grid, True, h, r - 1
-        case _:
-            raise ValueError(f"Unsupported BoundaryCondition for axis grid: {bc!r}")
+            n_grid = n0 + 2 * n_gps
+            a_grid = a0 - n_gps * h
+            b_grid = b0 + n_gps * h
+            return a_grid, b_grid, n_grid, True, h, 2  # MD : not completed yet
 
 
+# ------------------------------------------------------------------ #
+#  Grid Classes                                                      #
+# ------------------------------------------------------------------ #
 class Grid1d:
     def __init__(
         self,
@@ -85,43 +104,51 @@ class Grid1d:
         n: int = 100,
         *,
         bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        n_ghost_points: int = 0,
         scheme: NonOscillatoryScheme = NonOscillatoryScheme.WENO5,
+        r_width: int = 3,
         verbose: bool = False,
     ):
-        match scheme:
-            case NonOscillatoryScheme.WENO5:
-                r = 3
-            case NonOscillatoryScheme.CRWENO5:
-                r = 3
-            case _:
-                raise ValueError(f"Unsupported NonOscillatoryScheme: {scheme!r}")
 
-        self.r = r  # stencil width
+        self.r = 3  # stencil width
         self.bc = bc
         self.scheme = scheme
         self.verbose = verbose
 
-        a_grid, b_grid, n_grid, endpoint, h, n_gps = _uniform_1d_grid_axis(
-            a, b, n, bc, scheme, r
+        a_g, b_g, n_g, endpoint, h_g, n_gps = _uniform_1d_grid_axis(
+            a, b, n, bc, n_gps=3
         )
 
-        self.a = a_grid
-        self.b = b_grid
-        self.n = n_grid
+        self.a = a_g
+        self.b = b_g
+        self.n = n_g
         self.n_gps = n_gps
+        self.h = h_g  # grid spacing
+        self.inv_h = 1.0 / h_g
 
         self.x = np.linspace(
-            start=a_grid, stop=b_grid, num=n_grid, endpoint=endpoint, dtype=float
+            start=a_g, stop=b_g, num=n_g, endpoint=endpoint, dtype=float
         )
-        self.h = h  # grid spacing
-        self.inv_h = 1 / self.h
 
         # Constants
         self.ϵ = 1e-6
 
+        # print short summary of the grid
+        fields = {
+            "x": f"[{self.a}, {self.b}]",
+            "n": self.n,
+            "h": f"{self.h:.6f}",
+            "bc": self.bc.name,
+            "[default]scheme": self.scheme.name,
+            "r": self.r,
+            "n_gps": self.n_gps,
+        }
+        body = ", ".join(f"{k}={v}" for k, v in fields.items())
+        print(f"{type(self).__name__}({body})")
+
     @cached_property
     def linearly_interpolate_boundaries(self) -> sp.sparse.csr_matrix:
-        return lerp_oper(self.n, self.r - 1)
+        return lerp_oper(self.n, self.n_gps)
 
     @cached_property
     def crweno5_boundary_weights(
@@ -135,10 +162,10 @@ class Grid1d:
 
         if self.verbose:
             np.set_printoptions(precision=3, linewidth=120)
-            print(f"outer_L:\n{outer_L.toarray()}")
-            print(f"inner_L:\n{inner_L.toarray()}")
-            print(f"inner_R:\n{inner_R.toarray()}")
-            print(f"outer_R:\n{outer_R.toarray()}")
+            print(f"outer_L:\t{outer_L * self.h}")
+            print(f"inner_L:\t{inner_L * self.h}")
+            print(f"inner_R:\t{inner_R * self.h}")
+            print(f"outer_R:\t{outer_R * self.h}")
 
         return outer_L, inner_L, inner_R, outer_R
 
@@ -399,10 +426,10 @@ class Grid1d:
             lu = sp.sparse.linalg.splu(A.tocsc())
             uL = lu.solve(rhs)
 
-            if self.verbose:
-                np.set_printoptions(precision=2, linewidth=120)
-                print(f"A ({A.shape}):\n{A.toarray()}")
-                print(f"B ({B.shape}):\n{B.toarray()}")
+            # if DEBUG:
+            #     np.set_printoptions(precision=2, linewidth=120)
+            #     print(f"A ({A.shape}):\n{A.toarray()}")
+            #     print(f"B ({B.shape}):\n{B.toarray()}")
 
         # Compute the derivative for the left-biased stencil
         if self.bc == BoundaryCondition.PERIODIC:
@@ -471,10 +498,10 @@ class Grid1d:
             lu = sp.sparse.linalg.splu(A.tocsc())
             uR = lu.solve(rhs)
 
-            if self.verbose:
-                np.set_printoptions(precision=2, linewidth=120)
-                print(f"A ({A.shape}):\n{A.toarray()}")
-                print(f"B ({B.shape}):\n{B.toarray()}")
+            # if DEBUG
+            #     np.set_printoptions(precision=2, linewidth=120)
+            #     print(f"A ({A.shape}):\n{A.toarray()}")
+            #     print(f"B ({B.shape}):\n{B.toarray()}")
 
         # Compute the derivative for the right-biased stencil
         if self.bc == BoundaryCondition.PERIODIC:
@@ -483,3 +510,202 @@ class Grid1d:
             return np.pad(uR[2:] - uR[1:-1], (1, 1), mode="constant")
         else:  # self.bc == BoundaryCondition.GHOST_POINTS
             return np.pad(uR[2:] - uR[1:-1], (self.r, self.r), mode="constant")
+
+
+def _apply_1d_derivative(
+    grid_1d: Grid1d,
+    method: str,
+    u: np.ndarray,
+    axis: str,
+    *,
+    workers: int | None = None,
+) -> np.ndarray:
+    """Apply a 1D ``Grid1d`` derivative method slice-wise on a 2D field.
+
+    Parameters
+    ----------
+    grid_1d : Grid1d
+        1D grid whose ``method`` (e.g. ``Dx_upwind``) is applied to each slice.
+    method : str
+        Name of the ``Grid1d`` derivative method.
+    u : (ny, nx) array
+        2D field in row-major layout.
+    axis : {"x", "y"}
+        ``"x"`` differentiates along columns (last axis); ``"y"`` along rows.
+    workers : int or None, optional
+        If ``None`` or ``<= 1``, slices are processed sequentially.  Otherwise
+        a :class:`~concurrent.futures.ThreadPoolExecutor` runs up to ``workers``
+        slices in parallel (independent rows/columns).
+    """
+    if workers is not None and workers < 1:
+        raise ValueError(f"workers must be >= 1, got {workers}.")
+
+    fn = getattr(grid_1d, method)
+    out = np.empty_like(u, dtype=float)
+
+    if axis == "x":
+
+        def work(k: int) -> None:
+            out[k, :] = fn(u[k, :])
+
+        n_slices = u.shape[0]
+    elif axis == "y":
+
+        def work(j: int) -> None:
+            out[:, j] = fn(u[:, j])
+
+        n_slices = u.shape[1]
+    else:
+        raise ValueError(f"Invalid axis: {axis!r}")
+
+    if workers is None or workers <= 1:
+        for i in range(n_slices):
+            work(i)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            list(executor.map(work, range(n_slices)))
+
+    return out
+
+
+class Grid2d:
+    """Uniform 2D tensor-product grid with WENO/CRWENO upwind derivatives.
+
+    Two independent ``Grid1d`` axes (``gx``, ``gy``) handle boundary
+    conditions and reconstruction per direction.  Nonlinear operators are
+    applied by looping over rows (x) or columns (y).  Set ``workers`` to
+    parallelize independent slices with a thread pool (default: sequential).
+    """
+
+    def __init__(
+        self,
+        xa: float = 0.0,
+        xb: float = 1.0,
+        nx: int = 100,
+        ya: float = 0.0,
+        yb: float = 1.0,
+        ny: int = 100,
+        *,
+        bcx: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        bcy: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        scheme: NonOscillatoryScheme = NonOscillatoryScheme.WENO5,
+        verbose: bool = False,
+        workers: int | None = None,
+    ):
+        self.bcx = bcx
+        self.bcy = bcy
+        self.scheme = scheme
+        self.verbose = verbose
+        self.workers = workers
+
+        self.gx = Grid1d(a=xa, b=xb, n=nx, bc=bcx, scheme=scheme, verbose=verbose)
+        self.gy = Grid1d(a=ya, b=yb, n=ny, bc=bcy, scheme=scheme, verbose=verbose)
+
+        self.xa = self.gx.a
+        self.xb = self.gx.b
+        self.nx = self.gx.n
+        self.x = self.gx.x
+        self.hx = self.gx.h
+
+        self.ya = self.gy.a
+        self.yb = self.gy.b
+        self.ny = self.gy.n
+        self.y = self.gy.x
+        self.hy = self.gy.h
+
+        self.r = self.gx.r
+
+    @cached_property
+    def inv_hx(self) -> float:
+        return self.gx.inv_h
+
+    @cached_property
+    def inv_hy(self) -> float:
+        return self.gy.inv_h
+
+    @cached_property
+    def X(self) -> np.ndarray:
+        """Node coordinates, shape ``(ny, nx)``."""
+        return self.x[np.newaxis, :].repeat(self.ny, axis=0)
+
+    @cached_property
+    def Y(self) -> np.ndarray:
+        """Node coordinates, shape ``(ny, nx)``."""
+        return self.y[:, np.newaxis].repeat(self.nx, axis=1)
+
+    def _check_shape(self, u: np.ndarray) -> None:
+        if u.shape != (self.ny, self.nx):
+            raise ValueError(
+                f"Expected field shape ({self.ny}, {self.nx}), got {u.shape}."
+            )
+
+    def _derivative_workers(self, workers: int | None) -> int | None:
+        return self.workers if workers is None else workers
+
+    def Dx_upwind(self, u: np.ndarray, *, workers: int | None = None) -> np.ndarray:
+        """Left-biased d/dx applied row-wise along the x-axis."""
+        self._check_shape(u)
+        return _apply_1d_derivative(
+            self.gx, "Dx_upwind", u, axis="x", workers=self._derivative_workers(workers)
+        )
+
+    def Dx_downwind(self, u: np.ndarray, *, workers: int | None = None) -> np.ndarray:
+        """Right-biased d/dx applied row-wise along the x-axis."""
+        self._check_shape(u)
+        return _apply_1d_derivative(
+            self.gx,
+            "Dx_downwind",
+            u,
+            axis="x",
+            workers=self._derivative_workers(workers),
+        )
+
+    def Dy_upwind(self, u: np.ndarray, *, workers: int | None = None) -> np.ndarray:
+        """Left-biased d/dy applied column-wise along the y-axis."""
+        self._check_shape(u)
+        return _apply_1d_derivative(
+            self.gy, "Dx_upwind", u, axis="y", workers=self._derivative_workers(workers)
+        )
+
+    def Dy_downwind(self, u: np.ndarray, *, workers: int | None = None) -> np.ndarray:
+        """Right-biased d/dy applied column-wise along the y-axis."""
+        self._check_shape(u)
+        return _apply_1d_derivative(
+            self.gy,
+            "Dx_downwind",
+            u,
+            axis="y",
+            workers=self._derivative_workers(workers),
+        )
+
+    def Derivative(
+        self,
+        u: np.ndarray,
+        axis: str,
+        *,
+        bias: str = "upwind",
+    ) -> np.ndarray:
+        """Upwind-biased partial derivative on a 2D field.
+
+        Parameters
+        ----------
+        u : (ny, nx) array
+            Scalar field on the grid.
+        axis : {"x", "y"}
+            Coordinate direction.
+        bias : {"upwind", "downwind"}
+            Reconstruction bias (left- or right-biased at interfaces).
+        """
+        match bias:
+            case "upwind":
+                fn_x, fn_y = self.Dx_upwind, self.Dy_upwind
+            case "downwind":
+                fn_x, fn_y = self.Dx_downwind, self.Dy_downwind
+            case _:
+                raise ValueError(f"Invalid bias: {bias!r}")
+
+        if axis == "x":
+            return fn_x(u)
+        if axis == "y":
+            return fn_y(u)
+        raise ValueError(f"Invalid axis: {axis!r}")

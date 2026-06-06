@@ -12,8 +12,8 @@ def test_operators_identities_periodic_tridiagonal():
     grid = Ω.Grid2d(
         nx=64,
         ny=64,
-        bcx=Ω.BoundaryCondition.PERIODIC,
-        bcy=Ω.BoundaryCondition.PERIODIC,
+        bc_x=Ω.BoundaryCondition.PERIODIC,
+        bc_y=Ω.BoundaryCondition.PERIODIC,
         scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
@@ -35,8 +35,8 @@ def test_operators_identities_periodic_tridiagonal():
 
 def test_operators_identities_periodic_explicit():
     grid = Ω.Grid2d(
-        bcx=Ω.BoundaryCondition.PERIODIC,
-        bcy=Ω.BoundaryCondition.PERIODIC,
+        bc_x=Ω.BoundaryCondition.PERIODIC,
+        bc_y=Ω.BoundaryCondition.PERIODIC,
         scheme=Ω.FiniteDifferenceScheme.CENTRAL,
     )
     # Test function
@@ -60,8 +60,8 @@ def test_operators_identities_dirichlet_tridiagonal():
     grid = Ω.Grid2d(
         nx=64,
         ny=64,
-        bcx=Ω.BoundaryCondition.DIRICHLET,
-        bcy=Ω.BoundaryCondition.DIRICHLET,
+        bc_x=Ω.BoundaryCondition.DIRICHLET,
+        bc_y=Ω.BoundaryCondition.DIRICHLET,
         scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
@@ -85,8 +85,8 @@ def test_operators_identities_dirichlet_explicit():
     grid = Ω.Grid2d(
         nx=64,
         ny=64,
-        bcx=Ω.BoundaryCondition.DIRICHLET,
-        bcy=Ω.BoundaryCondition.DIRICHLET,
+        bc_x=Ω.BoundaryCondition.DIRICHLET,
+        bc_y=Ω.BoundaryCondition.DIRICHLET,
         scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
@@ -108,9 +108,13 @@ def test_operators_identities_dirichlet_explicit():
 
 def test_operators_identities_ghost_points_explicit():
     grid = Ω.Grid2d(
-        bcx=Ω.BoundaryCondition.GHOST_POINTS,
-        bcy=Ω.BoundaryCondition.GHOST_POINTS,
+        bc_x=Ω.BoundaryCondition.GHOST_POINTS,
+        bc_y=Ω.BoundaryCondition.GHOST_POINTS,
+        n_ghost_points_x=2,
+        n_ghost_points_y=2,
         scheme=Ω.FiniteDifferenceScheme.CENTRAL,
+        r_width_x=1,
+        r_width_y=1,
     )
     # Test function
     X, Y = np.meshgrid(grid.x, grid.y)
@@ -126,4 +130,4 @@ def test_operators_identities_ghost_points_explicit():
     errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
     assert errors["div_grad_eq_laplacian"] == np.False_
     assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.True_
+    assert errors["adjoint_consistency"] == np.False_

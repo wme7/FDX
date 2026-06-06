@@ -59,7 +59,7 @@ def compute_and_save(path: str, t_final: float, frames: int) -> None:
     grid = Ω.Grid2d(
         xa=-GRID_L, xb=GRID_L, nx=GRID_N, ya=-GRID_L, yb=0, ny=GRID_M, scheme=FD
     )
-    x, y = np.meshgrid(grid.x, grid.y)
+    x, y = np.meshgrid(grid.x, grid.y, indexing="xy")
 
     shape = (GRID_M, GRID_N)
     ds_opts = dict(

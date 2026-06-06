@@ -24,19 +24,19 @@ grid = Ω.Grid2d(
     xa=0.0,
     xb=Lx,
     nx=Nx,
-    rx=rx,
     ya=0.0,
     yb=Ly,
     ny=Ny,
-    ry=ry,
-    bcx=BCx,
-    bcy=BCy,
     scheme=FD,
+    r_width_x=rx,
+    r_width_y=ry,
+    bc_x=BCx,
+    bc_y=BCy,
     verbose=False,
 )
 
+# Numerical grid
 x_num, y_num = np.meshgrid(grid.x, grid.y)
-print(f"grid spacing: hx = {grid.hx}, hy = {grid.hy}")
 
 # Set test function
 u = sb.sin(2 * π * x) * sb.sin(2 * π * y)
@@ -65,7 +65,7 @@ Gradu = grid.Grad(u_num)
 Lu = grid.Laplacian(u_num)
 
 # Plot Derivatives and Laplacian
-fig = plt.figure(figsize=(10, 16))
+fig = plt.figure(figsize=(6, 12))
 plt.subplot(4, 2, 1)
 plt.imshow(du_dx_func(x_num, y_num), cmap="jet")
 plt.colorbar()

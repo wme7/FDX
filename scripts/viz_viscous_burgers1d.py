@@ -1,4 +1,4 @@
-# Visualization of 1D Burgers' equation using Matplotlib and FDX library.
+# %% Visualization of 1D Burgers' equation using Matplotlib and FDX library.
 
 import time
 from pathlib import Path
@@ -6,8 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-# from fdx import finite_differences_grid as Ω
-from fdx import essentially_nonoscillatory_grid as Ω
+from fdx import finite_differences_grid as Ω
 from fdx import time_integrators as τ
 
 FIGURES_DIR = Path(__file__).resolve().parent.parent / "figures" / "invicid_burgers1d"
@@ -15,6 +14,7 @@ FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Constants
 π = np.pi
+ν = 0.008  # Viscosity coefficient
 
 
 # Define initial condition functions
@@ -34,7 +34,7 @@ def square_wave(x, center=0.4, width=0.3):
 L = 1.0  # Length of the domain
 NX = 200  # Number of grid points
 NS = 10  # Number of snapshots
-RK = "RK3"  # Time-stepping method: "Euler/RK1", "RK2", "RK3", or "RK4"
+RK = "RK1"  # Time-stepping method: "Euler/RK1", "RK2", "RK3", or "RK4"
 CFL = 0.5  # CFL number for stability
 Tend = 0.25  # End time of the simulation
 
@@ -44,8 +44,8 @@ grid = Ω.Grid1d(
     a=0,
     b=L,
     n=NX,
-    bc=Ω.BoundaryCondition.DIRICHLET,
-    scheme=Ω.NonOscillatoryScheme.CRWENO5,
+    bc=Ω.BoundaryCondition.PERIODIC,
+    r_width=1,
     verbose=False,
 )
 x, Δx = grid.x, grid.h  # Grid points and spacing
@@ -53,38 +53,38 @@ x, Δx = grid.x, grid.h  # Grid points and spacing
 
 # RHS formulations
 def upwind_rhs(u):
-    return -u * (grid.Dx_upwind @ u)
+    return -u * (grid.Dx_upwind @ u) + ν * (grid.Dx2_central @ u)
 
 
 def downwind_rhs(u):
-    return -u * (grid.Dx_downwind @ u)
+    return -u * (grid.Dx_downwind @ u) + ν * (grid.Dx2_central @ u)
 
 
 def central_rhs(u):
-    return -u * (grid.Dx_central @ u)
+    return -u * (grid.Dx_central @ u) + ν * (grid.Dx2_central @ u)
 
 
 def non_conservative_rhs(u):
-    return np.where(u > 0, -u * (grid.Dx_upwind @ u), -u * (grid.Dx_downwind @ u))
-
-
-def non_conservative_WENO_rhs(u):
-    return np.where(u > 0, -u * (grid.Dx_upwind(u)), -u * (grid.Dx_downwind(u)))
+    return np.where(
+        u > 0, -u * (grid.Dx_upwind @ u), -u * (grid.Dx_downwind @ u)
+    ) + ν * (grid.Dx2_central @ u)
 
 
 def conservative_flux_splitting_rhs(u):
     f = 0.5 * u * u
     fm = 0.5 * (f + np.abs(u) * u)
     fp = 0.5 * (f - np.abs(u) * u)
-    return np.where(u > 0, -(grid.Dx_upwind @ fm), -(grid.Dx_downwind @ fp))
+    return np.where(u > 0, -(grid.Dx_upwind @ fm), -(grid.Dx_downwind @ fp)) + ν * (
+        grid.Dx2_central @ u
+    )
 
 
 # Set initial condition, time and iteration count
-u0, t, it = sine_wave(x), 0.0, 0
+u0, t, it = square_wave(x), 0.0, 0
 u = u0.copy()  # Initialize solution array
 
 # Compute time step based on CFL condition
-Δt = CFL * Δx / np.abs(u).max()
+Δt = 0.5 * CFL * Δx * Δx / ν
 
 # Initialize space time array
 nt = 2 + int(Tend / Δt)  # 2: initial condition and final condition
@@ -118,7 +118,7 @@ def apply_bc(u):
 
 # Define RHS function for the Burgers' equation
 def burgers_rhs(u):
-    return non_conservative_WENO_rhs(apply_bc(u))
+    return conservative_flux_splitting_rhs(apply_bc(u))
 
 
 # ----------------------------- driver ----------------------------- #

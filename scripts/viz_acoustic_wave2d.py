@@ -44,8 +44,8 @@ L = 1.0  # Length of the domain
 NX = 256  # Number of grid points
 NY = 256  # Number of grid points
 NS = 5  # Number of snapshots
-RK = "RK3"  # Time-stepping method: "Euler/RK1", "RK2", "RK3", or "RK4"
-CFL = 0.9  # CFL number for stability
+RK = "RK4"  # Time-stepping method: "Euler/RK1", "RK2", "RK3", or "RK4"
+CFL = 0.8  # CFL number for stability
 Tend = 0.4  # End time of the simulation
 
 # ----------------------------- setup ----------------------------- #
@@ -55,14 +55,12 @@ grid = Ω.Grid2d(
     xa=0,
     xb=L,
     nx=NX,
-    rx=2,
     ya=0,
     yb=L,
     ny=NY,
-    ry=2,
-    bcx=Ω.BoundaryCondition.PERIODIC,
-    bcy=Ω.BoundaryCondition.PERIODIC,
-    scheme=Ω.FiniteDifferenceScheme.CENTRAL,
+    bc_x=Ω.BoundaryCondition.PERIODIC,
+    bc_y=Ω.BoundaryCondition.PERIODIC,
+    scheme=Ω.FiniteDifferenceScheme.COMPACT,
     verbose=False,
 )
 x, y = np.meshgrid(grid.x, grid.y, indexing="xy")
@@ -71,12 +69,11 @@ x, y = np.meshgrid(grid.x, grid.y, indexing="xy")
 
 # RHS for acoustics equations
 def acoustics_rhs(state) -> np.ndarray:
-    """state = (3, n, n) array: (p, u, v).  Returns dstate/dt."""
     p, u, v = state[0], state[1], state[2]
-    div_u = grid.Derivative(u, "x") + grid.Derivative(v, "y")
-    dp_dx = grid.Derivative(p, "x")
-    dp_dy = grid.Derivative(p, "y")
-    return np.stack([-(c0**2) * div_u, -dp_dx, -dp_dy], axis=0)
+    rhs_0 = -(c0 * c0) * grid.Div_central([u, v])
+    rhs_1 = -grid.Dx(p)
+    rhs_2 = -grid.Dy(p)
+    return np.stack([rhs_0, rhs_1, rhs_2], axis=0)
 
 
 # Set initial condition

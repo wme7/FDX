@@ -22,21 +22,14 @@ if __name__ == "__main__":
     GRID_N = 100
     GRID_L = 5.0
     FD = Ω.FiniteDifferenceScheme.COMPACT
-    grid = Ω.Grid2d(
-        xa=-GRID_L,
-        xb=GRID_L,
-        nx=GRID_N,
-        ya=-GRID_L,
-        yb=GRID_L,
-        ny=GRID_N,
-        scheme=FD,
-    )
+    grid = Ω.Grid2d(-GRID_L, GRID_L, GRID_N, -GRID_L, GRID_L, GRID_N, scheme=FD)
     x, y = np.meshgrid(grid.x, grid.y)
     vx, vy, name = np.sin(x * y), np.cos(x - y), "trigonometric_field"
     # vx, vy, name = x, y, "positive_div"
     # vx, vy, name = -x, -y, "negative_div"
     # vx, vy, name = -y, x, "negative_curl"
     # vx, vy, name = y, -x, "positive_curl"
+    # vx, vy, name = 1, 2, "constant"
     v_field = np.stack((vx, vy), axis=-1)
     assert v_field.shape == (GRID_N, GRID_N, 2)
 

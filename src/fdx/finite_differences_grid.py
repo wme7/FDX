@@ -54,8 +54,6 @@ class FiniteDifferenceScheme(Enum):
     COMPACT = auto()
     UPWIND = auto()
     DOWNWIND = auto()
-    # WENO5 = auto()
-    # CRWENO5 = auto()
 
 
 # ------------------------------------------------------------------ #
@@ -65,6 +63,7 @@ def build_explicit_fd_matrix(
     n: int,
     m_derivative: int,
     r_width: int,
+    n_ghost_points: int,
     h: float,
     bc: BoundaryCondition,
     bias: str,
@@ -139,11 +138,11 @@ def build_explicit_fd_matrix(
             _apply_scheme_onesided(D, m_derivative, r_width, scaling, bias)
 
         case BoundaryCondition.GHOST_POINTS:
-            _apply_ghost_points(D, r_width, bias)
+            _apply_ghost_points(D, n_ghost_points, bias)
 
     if verbose:
-        with np.printoptions(precision=2, suppress=True):
-            print(D.toarray())
+        with np.printoptions(precision=2, suppress=True, linewidth=120):
+            print(f"D ({D.shape}):\n{D.toarray()}")
 
     return D.tocsr()
 
@@ -215,8 +214,8 @@ def build_pade_fd_matrix(
 
     if verbose:
         with np.printoptions(precision=2, suppress=True):
-            print(A.toarray())
-            print(B.toarray())
+            print(f"A ({A.shape}):\n{A.toarray()}")
+            print(f"B ({B.shape}):\n{B.toarray()}")
 
     # Factorize A once, solve against all columns of B in one shot
     lu = sp.sparse.linalg.splu(A_csc)
@@ -264,24 +263,31 @@ def _apply_periodic_corners(D, n, offsets, weights):
         D[rows, cols] = w
 
 
-def _apply_ghost_points(D, r_width, bias):
+def _apply_ghost_points(D, n_ghost_points, bias):
     """
     Replace rows near the selected boundary with an identity matrix.
 
     Depending on ``bias``, this writes identity rows at the left boundary
     (``"left"``/``"upwind"``), right boundary (``"right"``/``"downwind"``),
-    or both boundaries (``"both"``).
+    or both boundaries (``"central"``/``"both"``).
     """
-    stencil_size = 2 * r_width + 1
-    for r in range(r_width):
-        if bias in ["left", "upwind", "both"]:
+    # stencil_size = 2 * r_width + 1
+    for r in range(n_ghost_points):
+        if bias in ["left", "upwind"]:
             # -- left boundary:
-            D[r, :stencil_size] = 0  # reset values
+            D[r, :] = 0  # reset values
             D[r, r] = 1
-        elif bias in ["right", "downwind", "both"]:
+        elif bias in ["right", "downwind"]:
             # -- right boundary:
-            D[-(1 + r), -stencil_size:] = 0  # reset values
-            D[-(1 + r), -(1 + r)] = 1
+            D[-r - 1, :] = 0  # reset values
+            D[-r - 1, -r - 1] = 1
+        elif bias in ["both", "central"]:
+            # -- left boundary:
+            D[r, :] = 0  # reset values
+            D[r, r] = 1
+            # -- right boundary:
+            D[-r - 1, :] = 0  # reset values
+            D[-r - 1, -r - 1] = 1
 
 
 def _apply_scheme_onesided(D, m_derivative, r_width, scale, bias="both"):
@@ -334,11 +340,11 @@ def _apply_scheme_onesided(D, m_derivative, r_width, scale, bias="both"):
         for r in range(r_width):
             # -- right boundary:
             if r == 0:
-                D[-(1 + r), -(1 + r)] = 1
+                D[-r - 1, -r - 1] = 1
             else:
                 α = list(range(0, r + 1))
                 ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
-                D[-(1 + r), -(r + 1) :] = ω * scale
+                D[-r - 1, -(r + 1) :] = ω * scale
 
     elif bias in ["both", "central"]:
         stencil_size = 2 * r_width + 1
@@ -351,7 +357,7 @@ def _apply_scheme_onesided(D, m_derivative, r_width, scale, bias="both"):
             # -- right boundary:
             α = list(range(-(stencil_size - r - 1), r + 1))
             ω = fd_explicit_weights(m=m_derivative, x=0, alpha=α)
-            D[-(1 + r), -stencil_size:] = ω * scale
+            D[-r - 1, -stencil_size:] = ω * scale
 
 
 def _apply_pade_onesided(A, B, m_derivative, r_width):
@@ -383,8 +389,8 @@ def _apply_pade_onesided(A, B, m_derivative, r_width):
         # -- reset values near boundaries
         A[r, :stencil_size] = 0
         B[r, :stencil_size] = 0
-        A[-(1 + r), -stencil_size:] = 0
-        B[-(1 + r), -stencil_size:] = 0
+        A[-r - 1, -stencil_size:] = 0
+        B[-r - 1, -stencil_size:] = 0
 
     for r in range(r_width):
         # -- top boundary:
@@ -398,21 +404,21 @@ def _apply_pade_onesided(A, B, m_derivative, r_width):
         α = [-1, 0, 1] if r != 0 else [-1, 0]
         β = list(range(-(b_stencil_size - r - 1), r + 1))
         a_w, b_w = fd_central_weights(m=m_derivative, alpha=α, beta=β)
-        A[-(1 + r), -len(α) :] = a_w
-        B[-(1 + r), -len(β) :] = b_w
+        A[-r - 1, -len(α) :] = a_w
+        B[-r - 1, -len(β) :] = b_w
 
 
 # ------------------------------------------------------------------ #
 #  Operator helper                                                   #
 # ------------------------------------------------------------------ #
-def _build_1d_operator(n, m, r, h, bc, scheme, verbose) -> sp.sparse.csr_matrix:
+def _build_1d_operator(n, m, r, n_gp, h, bc, scheme, verbose) -> sp.sparse.csr_matrix:
     match scheme:
         case FiniteDifferenceScheme.CENTRAL:
-            return build_explicit_fd_matrix(n, m, r, h, bc, "central", verbose)
+            return build_explicit_fd_matrix(n, m, r, n_gp, h, bc, "central", verbose)
         case FiniteDifferenceScheme.UPWIND:
-            return build_explicit_fd_matrix(n, m, r, h, bc, "upwind", verbose)
+            return build_explicit_fd_matrix(n, m, r, n_gp, h, bc, "upwind", verbose)
         case FiniteDifferenceScheme.DOWNWIND:
-            return build_explicit_fd_matrix(n, m, r, h, bc, "downwind", verbose)
+            return build_explicit_fd_matrix(n, m, r, n_gp, h, bc, "downwind", verbose)
         case FiniteDifferenceScheme.PADE:
             return build_pade_fd_matrix(n, m, r, h, bc, verbose)
         case FiniteDifferenceScheme.COMPACT:
@@ -420,16 +426,15 @@ def _build_1d_operator(n, m, r, h, bc, scheme, verbose) -> sp.sparse.csr_matrix:
 
 
 # ------------------------------------------------------------------ #
-#  Grid Classes                                                      #
+#  Grid Helper Functions                                             #
 # ------------------------------------------------------------------ #
 def _uniform_1d_grid_axis(
     a: float,
     b: float,
     n: int,
     bc: BoundaryCondition,
-    scheme: FiniteDifferenceScheme,
-    r: int,
-) -> tuple[float, float, int, bool, float]:
+    n_gps: int,
+) -> tuple[float, float, int, bool, float, int]:
     """
     Uniform 1D axis parameters consistent with ``Grid1d``.
 
@@ -439,136 +444,306 @@ def _uniform_1d_grid_axis(
         raise ValueError(f"Axis grid requires n >= 2, got n={n}.")
     if not (b > a):
         raise ValueError(f"Axis grid requires b > a, got a={a}, b={b}.")
-    if r < 0:
-        raise ValueError(f"Stencil half-width r must be >= 0, got r={r}.")
+    if bc == BoundaryCondition.GHOST_POINTS and n_gps < 1:
+        raise ValueError(f"Number of ghost points must be >= 1, got n_gps={n_gps}.")
 
     a0, b0, n0 = float(a), float(b), int(n)
 
     match bc:
         case BoundaryCondition.PERIODIC:
-            return a0, b0, n0, False, (b0 - a0) / n0
+            return a0, b0, n0, False, (b0 - a0) / n0, 0
         case BoundaryCondition.DIRICHLET:
-            return a0, b0, n0, True, (b0 - a0) / (n0 - 1)
+            return a0, b0, n0, True, (b0 - a0) / (n0 - 1), 0
         case BoundaryCondition.GHOST_POINTS:
-            if r < 1:
-                raise ValueError("BoundaryCondition.GHOST_POINTS requires r >= 1.")
             h = (b0 - a0) / (n0 - 1)
-            match scheme:
-                case FiniteDifferenceScheme.UPWIND:
-                    n_grid = n0 + r
-                    a_grid = a0 - r * h
-                    b_grid = b0
-                    return a_grid, b_grid, n_grid, True, h
-                case FiniteDifferenceScheme.DOWNWIND:
-                    n_grid = n0 + r
-                    a_grid = a0
-                    b_grid = b0 + r * h
-                    return a_grid, b_grid, n_grid, True, h
-                case _:
-                    n_grid = n0 + 2 * r
-                    a_grid = a0 - r * h
-                    b_grid = b0 + r * h
-                    return a_grid, b_grid, n_grid, True, h
-        case _:
-            raise ValueError(f"Unsupported BoundaryCondition for axis grid: {bc!r}")
+            n_grid = n0 + 2 * n_gps
+            a_grid = a0 - n_gps * h
+            b_grid = b0 + n_gps * h
+            return a_grid, b_grid, n_grid, True, h, n_gps
 
 
+# ------------------------------------------------------------------ #
+#  Grid Classes                                                      #
+# ------------------------------------------------------------------ #
 class Grid1d:
     def __init__(
         self,
         a: float = 0.0,
         b: float = 1.0,
         n: int = 100,
-        r: int = 1,
+        *,
         bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        n_ghost_points: int = 0,
         scheme: FiniteDifferenceScheme = FiniteDifferenceScheme.CENTRAL,
+        r_width: int = 1,
         verbose: bool = False,
     ):
 
-        self.r = r  # stencil width
+        self.r = r_width  # stencil width
         self.bc = bc
         self.scheme = scheme
         self.verbose = verbose
 
-        a_grid, b_grid, n_grid, endpoint, h = _uniform_1d_grid_axis(
-            a, b, n, bc, scheme, r
+        a_g, b_g, n_g, endpoint, h_g, n_gps = _uniform_1d_grid_axis(
+            a, b, n, bc, n_ghost_points
         )
 
-        self.a = a_grid
-        self.b = b_grid
-        self.n = n_grid
+        self.a = a_g
+        self.b = b_g
+        self.n = n_g
+        self.n_gps = n_gps
+        self.h = h_g  # grid spacing
+        self.inv_h = 1.0 / h_g
 
         self.x = np.linspace(
-            start=a_grid, stop=b_grid, num=n_grid, endpoint=endpoint, dtype=float
+            start=a_g, stop=b_g, num=n_g, endpoint=endpoint, dtype=float
         )
-        self.h = h  # grid spacing
+
+        # Print short summary of the grid
+        fields = {
+            "x": f"[{self.a}, {self.b}]",
+            "n": self.n,
+            "h": f"{self.h:.6f}",
+            "bc": self.bc.name,
+            "[default]scheme": self.scheme.name,
+            "r": self.r,
+            "n_gps": self.n_gps,
+        }
+        body = ", ".join(f"{k}={v}" for k, v in fields.items())
+        print(f"{type(self).__name__}({body})")
+
+    # -------------------------------- #
+    # First-order derivative operators #
+    # -------------------------------- #
+    @cached_property
+    def Dx_upwind(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            1,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.UPWIND,
+            self.verbose,
+        )
 
     @cached_property
+    def Dx_downwind(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            1,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.DOWNWIND,
+            self.verbose,
+        )
+
+    @cached_property
+    def Dx_central(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            1,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.CENTRAL,
+            self.verbose,
+        )
+
+    @cached_property
+    def Dx_pade(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            1,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.PADE,
+            self.verbose,
+        )
+
+    @cached_property
+    def Dx_compact(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            1,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.COMPACT,
+            self.verbose,
+        )
+
+    # --------------------------------- #
+    # Second-order derivative operators #
+    # --------------------------------- #
+    @cached_property
+    def Dx2_central(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            2,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.CENTRAL,
+            self.verbose,
+        )
+
+    @cached_property
+    def Dx2_pade(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            2,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.PADE,
+            self.verbose,
+        )
+
+    @cached_property
+    def Dx2_compact(self) -> sp.sparse.csr_matrix:
+        return _build_1d_operator(
+            self.n,
+            2,
+            self.r,
+            self.n_gps,
+            self.h,
+            self.bc,
+            FiniteDifferenceScheme.COMPACT,
+            self.verbose,
+        )
+
+    # ------------------------------------- #
+    # Shortcuts to default scheme operators #
+    # ------------------------------------- #
+    @property
     def Dx(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.n, 1, self.r, self.h, self.bc, self.scheme, self.verbose
-        )
+        match self.scheme:
+            case FiniteDifferenceScheme.UPWIND:
+                return self.Dx_upwind
+            case FiniteDifferenceScheme.DOWNWIND:
+                return self.Dx_downwind
+            case FiniteDifferenceScheme.CENTRAL:
+                return self.Dx_central
+            case FiniteDifferenceScheme.PADE:
+                return self.Dx_pade
+            case FiniteDifferenceScheme.COMPACT:
+                return self.Dx_compact
 
-    @cached_property
+    @property
     def Dx2(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.n, 2, self.r, self.h, self.bc, self.scheme, self.verbose
-        )
+        match self.scheme:
+            case FiniteDifferenceScheme.CENTRAL:
+                return self.Dx2_central
+            case FiniteDifferenceScheme.PADE:
+                return self.Dx2_pade
+            case FiniteDifferenceScheme.COMPACT:
+                return self.Dx2_compact
 
-    @cached_property
-    def inv_h(self) -> float:
-        return 1.0 / self.h
+    # -------------------------------------------------- #
+    # Shortcut to build a specific derivative operator   #
+    # -------------------------------------------------- #
+    def Derivative(
+        self, scheme: FiniteDifferenceScheme, k_order: int, r_width: int
+    ) -> sp.sparse.csr_matrix:
+        if self.bc == BoundaryCondition.GHOST_POINTS and r_width > self.n_gps:
+            raise ValueError(
+                "Stencil width is incompatible with number of ghost points."
+            )
+        return _build_1d_operator(
+            self.n,
+            k_order,
+            r_width,
+            self.n_gps,
+            self.h,
+            self.bc,
+            scheme,
+            self.verbose,
+        )
 
 
 class Grid2d:
+    """Uniform 2D tensor-product grid with finite-difference operators.
+
+    Two independent ``Grid1d`` axes (``gx``, ``gy``) handle boundary
+    conditions and stencils per direction.  Full 2D operators are assembled
+    via Kronecker products of the 1D blocks.
+    """
+
     def __init__(
         self,
         xa: float = 0.0,
         xb: float = 1.0,
         nx: int = 100,
-        rx: int = 1,
         ya: float = 0.0,
         yb: float = 1.0,
         ny: int = 100,
-        ry: int = 1,
-        bcx: BoundaryCondition = BoundaryCondition.DIRICHLET,
-        bcy: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        *,
+        bc_x: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        bc_y: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        n_ghost_points_x: int = 0,
+        n_ghost_points_y: int = 0,
         scheme: FiniteDifferenceScheme = FiniteDifferenceScheme.CENTRAL,
+        r_width_x: int = 1,
+        r_width_y: int = 1,
         verbose: bool = False,
     ):
-
-        self.rx = rx  # stencil width for x-axis
-        self.ry = ry  # stencil width for y-axis
-        self.bcx = bcx
-        self.bcy = bcy
+        self.bcx = bc_x
+        self.bcy = bc_y
         self.scheme = scheme
         self.verbose = verbose
 
-        xa_g, xb_g, nx_g, endpoint_x, hx = _uniform_1d_grid_axis(
-            xa, xb, nx, bcx, scheme, rx
+        self.gx = Grid1d(
+            a=xa,
+            b=xb,
+            n=nx,
+            bc=bc_x,
+            n_ghost_points=n_ghost_points_x,
+            scheme=scheme,
+            r_width=r_width_x,
+            verbose=verbose,
         )
-        ya_g, yb_g, ny_g, endpoint_y, hy = _uniform_1d_grid_axis(
-            ya, yb, ny, bcy, scheme, ry
+        self.gy = Grid1d(
+            a=ya,
+            b=yb,
+            n=ny,
+            bc=bc_y,
+            n_ghost_points=n_ghost_points_y,
+            scheme=scheme,
+            r_width=r_width_y,
+            verbose=verbose,
         )
 
-        self.xa = xa_g
-        self.xb = xb_g
-        self.nx = nx_g
+        self.xa = self.gx.a
+        self.xb = self.gx.b
+        self.nx = self.gx.n
+        self.n_gps_x = self.gx.n_gps
+        self.hx = self.gx.h
+        self.inv_hx = self.gx.inv_h
+        self.x = self.gx.x
+        self.rx = self.gx.r
 
-        self.x = np.linspace(
-            start=xa_g, stop=xb_g, num=nx_g, endpoint=endpoint_x, dtype=float
-        )
-        self.hx = hx  # grid spacing for x-axis
+        self.ya = self.gy.a
+        self.yb = self.gy.b
+        self.ny = self.gy.n
+        self.n_gps_y = self.gy.n_gps
+        self.hy = self.gy.h
+        self.inv_hy = self.gy.inv_h
+        self.y = self.gy.x
+        self.ry = self.gy.r
 
-        self.ya = ya_g
-        self.yb = yb_g
-        self.ny = ny_g
-
-        self.y = np.linspace(
-            start=ya_g, stop=yb_g, num=ny_g, endpoint=endpoint_y, dtype=float
-        )
-        self.hy = hy  # grid spacing for y-axis
-
+    # ------------------------------------------- #
+    # Methods for building the discrete operators #
+    # ------------------------------------------- #
     @cached_property
     def Ix(self):
         return sp.sparse.eye(self.nx, format="csr")
@@ -578,108 +753,194 @@ class Grid2d:
         return sp.sparse.eye(self.ny, format="csr")
 
     @cached_property
-    def Dx_1d(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.nx, 1, self.rx, self.hx, self.bcx, self.scheme, self.verbose
-        )
+    def Dx_operator(self) -> sp.sparse.csr_matrix:
+        return sp.sparse.kron(self.Iy, self.gx.Dx, format="csr")
 
     @cached_property
-    def Dx_1d_T(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.nx, 1, self.rx, self.hx, self.bcx, self.scheme, self.verbose
-        ).T
+    def Dy_operator(self) -> sp.sparse.csr_matrix:
+        return sp.sparse.kron(self.gy.Dx, self.Ix, format="csr")
 
     @cached_property
-    def Dy_1d(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.ny, 1, self.ry, self.hy, self.bcy, self.scheme, self.verbose
-        )
+    def Dxy_operator(self) -> sp.sparse.csr_matrix:
+        return sp.sparse.kron(self.gy.Dx, self.gx.Dx, format="csr")
 
     @cached_property
-    def Dx2_1d(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.nx, 2, self.rx, self.hx, self.bcx, self.scheme, self.verbose
-        )
+    def Dyx_operator(self) -> sp.sparse.csr_matrix:
+        return self.Dxy_operator
 
     @cached_property
-    def Dy2_1d(self) -> sp.sparse.csr_matrix:
-        return _build_1d_operator(
-            self.ny, 2, self.ry, self.hy, self.bcy, self.scheme, self.verbose
-        )
+    def Dx2_operator(self) -> sp.sparse.csr_matrix:
+        return sp.sparse.kron(self.Iy, self.gx.Dx2, format="csr")
 
     @cached_property
-    def Dx2d(self) -> sp.sparse.csr_matrix:
-        return sp.sparse.kron(self.Iy, self.Dx2_1d, format="csr")
-
-    @cached_property
-    def Dy2d(self) -> sp.sparse.csr_matrix:
-        return sp.sparse.kron(self.Dy2_1d, self.Ix, format="csr")
-
-    @cached_property
-    def Dx(self) -> sp.sparse.csr_matrix:
-        return sp.sparse.kron(self.Iy, self.Dx_1d, format="csr")
-
-    @cached_property
-    def Dy(self) -> sp.sparse.csr_matrix:
-        return sp.sparse.kron(self.Dy_1d, self.Ix, format="csr")
-
-    @cached_property
-    def Dxy(self) -> sp.sparse.csr_matrix:
-        return sp.sparse.kron(self.Dy_1d, self.Dx_1d, format="csr")
-
-    @cached_property
-    def Dyx(self) -> sp.sparse.csr_matrix:
-        return self.Dxy
+    def Dy2_operator(self) -> sp.sparse.csr_matrix:
+        return sp.sparse.kron(self.gy.Dx2, self.Ix, format="csr")
 
     @cached_property
     def grad(self):
-        return sp.sparse.vstack([self.Dx, self.Dy], format="csr")
+        return sp.sparse.vstack([self.Dx_operator, self.Dy_operator], format="csr")
 
     @cached_property
     def div(self):
-        return sp.sparse.hstack([self.Dx, self.Dy], format="csr")
+        return sp.sparse.hstack([self.Dx_operator, self.Dy_operator], format="csr")
 
     @cached_property
     def curl(self):
-        return sp.sparse.hstack([-self.Dy, self.Dx], format="csr")
+        return sp.sparse.hstack([-self.Dy_operator, self.Dx_operator], format="csr")
 
     @cached_property
     def laplacian(self):
-        return self.Dx2d + self.Dy2d
+        return self.Dx2_operator + self.Dy2_operator
+
+    # -------------------------------------------------------- #
+    # Shortcuts to perform operations using the default scheme #
+    # -------------------------------------------------------- #
+    @cached_property
+    def Dx_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx.T
 
     @cached_property
-    def inv_hx(self) -> float:
-        return 1.0 / self.hx
+    def Dy_1d(self) -> sp.sparse.csr_matrix:
+        return self.gy.Dx
 
     @cached_property
-    def inv_hy(self) -> float:
-        return 1.0 / self.hy
+    def Dx2_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx2.T
 
-    # Shortcuts to perform operations on the grid
-    def Derivative(self, u: np.ndarray, axis: str) -> np.ndarray:
-        if axis == "x":
-            du_flat = u @ self.Dx_1d_T
-        elif axis == "y":
-            du_flat = self.Dy_1d @ u
-        elif axis in ["yx", "xy"]:
-            du_flat = self.Dy_1d @ (u @ self.Dx_1d_T)
-        else:
-            raise ValueError(f"Invalid axis: {axis}")
-        return du_flat.reshape(self.ny, self.nx)
+    @cached_property
+    def Dy2_1d(self) -> sp.sparse.csr_matrix:
+        return self.gy.Dx2
+
+    def Dx(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx_1d_T
+
+    def Dy(self, u: np.ndarray) -> np.ndarray:
+        return self.Dy_1d @ u
+
+    def Dx2(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx2_1d_T
+
+    def Dy2(self, u: np.ndarray) -> np.ndarray:
+        return self.Dy2_1d @ u
+
+    def Dxy(self, u: np.ndarray) -> np.ndarray:
+        return self.Dy_1d @ (u @ self.Dx_1d_T)
 
     def Grad(self, sField: np.ndarray) -> list[np.ndarray]:
-        grad_flat = self.grad @ sField.ravel()
-        grad_array = grad_flat.reshape(2, self.ny, self.nx)
-        return [grad_array[0, :, :], grad_array[1, :, :]]
+        return [self.Dx(sField), self.Dy(sField)]
 
     def Div(self, vField: list[np.ndarray]) -> np.ndarray:
-        div_flat = self.div @ np.concatenate([vField[0].ravel(), vField[1].ravel()])
-        return div_flat.reshape(self.ny, self.nx)
+        return self.Dx(vField[0]) + self.Dy(vField[1])
 
     def Curl(self, vField: list[np.ndarray]) -> np.ndarray:
-        curl_flat = self.curl @ np.concatenate([vField[0].ravel(), vField[1].ravel()])
-        return curl_flat.reshape(self.ny, self.nx)
+        return self.Dy(vField[0]) - self.Dx(vField[1])
 
     def Laplacian(self, sField: np.ndarray) -> np.ndarray:
-        Laplacian_flat = self.laplacian @ sField.ravel()
-        return Laplacian_flat.reshape(self.ny, self.nx)
+        return self.Dx2(sField) + self.Dy2(sField)
+
+    # ------------------------------------------------------- #
+    # Shortcuts to perform operations using a specific scheme #
+    # ------------------------------------------------------- #
+    @cached_property
+    def Dx_upwind_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx_upwind.T
+
+    def Dx_upwind(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx_upwind_1d_T
+
+    def Dy_upwind(self, u: np.ndarray) -> np.ndarray:
+        return self.gy.Dx_upwind @ u
+
+    def Grad_upwind(self, u: np.ndarray) -> list[np.ndarray]:
+        return [self.Dx_upwind(u), self.Dy_upwind(u)]
+
+    def Div_upwind(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dx_upwind(v[0]) + self.Dy_upwind(v[1])
+
+    def Curl_upwind(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dy_upwind(v[0]) - self.Dx_upwind(v[1])
+
+    @cached_property
+    def Dx_downwind_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx_downwind.T
+
+    def Dx_downwind(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx_downwind_1d_T
+
+    def Dy_downwind(self, u: np.ndarray) -> np.ndarray:
+        return self.gy.Dx_downwind @ u
+
+    def Grad_downwind(self, u: np.ndarray) -> list[np.ndarray]:
+        return [self.Dx_downwind(u), self.Dy_downwind(u)]
+
+    def Div_downwind(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dx_downwind(v[0]) + self.Dy_downwind(v[1])
+
+    def Curl_downwind(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dy_downwind(v[0]) - self.Dx_downwind(v[1])
+
+    @cached_property
+    def Dx_central_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx_central.T
+
+    def Dx_central(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx_central_1d_T
+
+    def Dy_central(self, u: np.ndarray) -> np.ndarray:
+        return self.gy.Dx_central @ u
+
+    def Grad_central(self, u: np.ndarray) -> list[np.ndarray]:
+        return [self.Dx_central(u), self.Dy_central(u)]
+
+    def Div_central(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dx_central(v[0]) + self.Dy_central(v[1])
+
+    def Curl_central(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dy_central(v[0]) - self.Dx_central(v[1])
+
+    def Laplacian_central(self, u: np.ndarray) -> np.ndarray:
+        return self.Dx2_central(u) + self.Dy2_central(u)
+
+    @cached_property
+    def Dx_pade_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx_pade.T
+
+    def Dx_pade(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx_pade_1d_T
+
+    def Dy_pade(self, u: np.ndarray) -> np.ndarray:
+        return self.gy.Dx_pade @ u
+
+    def Grad_pade(self, u: np.ndarray) -> list[np.ndarray]:
+        return [self.Dx_pade(u), self.Dy_pade(u)]
+
+    def Div_pade(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dx_pade(v[0]) + self.Dy_pade(v[1])
+
+    def Curl_pade(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dy_pade(v[0]) - self.Dx_pade(v[1])
+
+    def Laplacian_pade(self, u: np.ndarray) -> np.ndarray:
+        return self.Dx2_pade(u) + self.Dy2_pade(u)
+
+    @cached_property
+    def Dx_compact_1d_T(self) -> sp.sparse.csr_matrix:
+        return self.gx.Dx_compact.T
+
+    def Dx_compact(self, u: np.ndarray) -> np.ndarray:
+        return u @ self.Dx_compact_1d_T
+
+    def Dy_compact(self, u: np.ndarray) -> np.ndarray:
+        return self.gy.Dx_compact @ u
+
+    def Grad_compact(self, u: np.ndarray) -> list[np.ndarray]:
+        return [self.Dx_compact(u), self.Dy_compact(u)]
+
+    def Div_compact(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dx_compact(v[0]) + self.Dy_compact(v[1])
+
+    def Curl_compact(self, v: list[np.ndarray]) -> np.ndarray:
+        return self.Dy_compact(v[0]) - self.Dx_compact(v[1])
+
+    def Laplacian_compact(self, u: np.ndarray) -> np.ndarray:
+        return self.Dx2_compact(u) + self.Dy2_compact(u)
