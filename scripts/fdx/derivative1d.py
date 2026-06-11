@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 from prettytable import PrettyTable as PT
 
 from fdx import finite_differences_grid as Ω
+from fdx.finite_differences_grid import BoundaryCondition as dΩ
 from fdx.utils import compute_order_of_accuracy
 
 # Symbols & Constants
@@ -16,15 +17,13 @@ x = sb.symbols("x")
 N = 24  # number of grid points
 L = 3.0  # domain length
 r = 2  # stencil width (total width is 2*r + 1)
-BC = Ω.BoundaryCondition.DIRICHLET
-FD = Ω.FiniteDifferenceScheme.CENTRAL
 
 # Create grid
-grid = Ω.Grid1d(a=0, b=L, n=N, scheme=FD, r_width=r, bc=BC, verbose=True)
+grid = Ω.Grid1d(a=0, b=L, n=N, bc=dΩ.DIRICHLET, r_width=r, verbose=True)
 
 # Set Test function
 match grid.bc:
-    case Ω.BoundaryCondition.PERIODIC:
+    case dΩ.PERIODIC:
         # use a periodic sine function as test function
         u = sb.sin(2 * π * x)
     case _:
@@ -36,9 +35,9 @@ u_func = sb.lambdify(x, u, "numpy")
 du_func = sb.lambdify(x, du, "numpy")
 
 # Compute numerical derivative
-x_num = grid.x
+x_num = grid.nodes
 u_num = u_func(x_num)
-du_num = grid.Dx @ u_num
+du_num = grid.Dx_central(u_num)
 
 # Plot
 x_func = np.linspace(0, L, 1000)
@@ -61,16 +60,16 @@ l1_list = np.zeros(len(N_list))
 
 for i, n in enumerate(N_list):
     # Create numerical grid
-    grid = Ω.Grid1d(a=0, b=L, n=n, scheme=FD, r_width=r, bc=BC)
+    grid = Ω.Grid1d(a=0, b=L, n=n, bc=dΩ.DIRICHLET, r_width=r)
 
     # Compute grid spacing
     h_list[i] = grid.h
 
     # Compute numerical derivative
-    du_num = grid.Dx @ u_func(grid.x)
+    du_num = grid.Dx_central(u_func(grid.nodes))
 
     # Compute L1 norm of the error
-    l1_list[i] = grid.h * np.linalg.norm(du_num - du_func(grid.x), ord=1)
+    l1_list[i] = grid.h * np.linalg.norm(du_num - du_func(grid.nodes), ord=1)
 
 # Plot the error vs. grid spacing
 plt.loglog(h_list, l1_list, "-s", label="$D_x$")

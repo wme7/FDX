@@ -1,5 +1,4 @@
 import numpy as np
-import scipy as sp
 
 from fdx import finite_differences_grid as Ω
 
@@ -14,46 +13,46 @@ def test_operators_identities_periodic_tridiagonal():
         ny=64,
         bc_x=Ω.BoundaryCondition.PERIODIC,
         bc_y=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
-    X, Y = np.meshgrid(grid.x, grid.y)
-    u = np.sin(2 * π * X) * np.sin(2 * π * Y)
+    u = np.sin(2 * π * grid.X) * np.sin(2 * π * grid.Y)
+    assert u.shape == (64, 64)
 
     # Test Operators
-    Du = grid.Grad(u)
-    Laplacian = grid.Laplacian(u)
+    Du = grid.Grad_pade(u)
+    Laplacian = grid.Laplacian_pade(u)
+    assert Du[0].shape == (64, 64)
+    assert Du[1].shape == (64, 64)
+    assert Laplacian.shape == (64, 64)
 
     errors = {}
-    errors["div_grad_eq_laplacian"] = np.linalg.norm(grid.Div(Du) - Laplacian) < TOL
-    errors["curl_grad_eq_zero"] = sp.sparse.linalg.norm(grid.curl @ grid.grad) < TOL
-    errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
+    errors["div_grad_eq_laplacian"] = (
+        np.linalg.norm(grid.Div_pade(Du) - Laplacian) < TOL
+    )
     assert errors["div_grad_eq_laplacian"] == np.False_
-    assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.True_
 
 
 def test_operators_identities_periodic_explicit():
     grid = Ω.Grid2d(
         bc_x=Ω.BoundaryCondition.PERIODIC,
         bc_y=Ω.BoundaryCondition.PERIODIC,
-        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
     )
     # Test function
-    X, Y = np.meshgrid(grid.x, grid.y)
-    u = np.sin(2 * π * X) * np.sin(2 * π * Y)
+    u = np.sin(2 * π * grid.X) * np.sin(2 * π * grid.Y)
+    assert u.shape == (100, 100)
 
     # Test Operators
-    Du = grid.Grad(u)
-    Laplacian = grid.Laplacian(u)
+    Du = grid.Grad_central(u)
+    Laplacian = grid.Laplacian_central(u)
+    assert Du[0].shape == (100, 100)
+    assert Du[1].shape == (100, 100)
+    assert Laplacian.shape == (100, 100)
 
     errors = {}
-    errors["div_grad_eq_laplacian"] = np.linalg.norm(grid.Div(Du) - Laplacian) < TOL
-    errors["curl_grad_eq_zero"] = sp.sparse.linalg.norm(grid.curl @ grid.grad) < TOL
-    errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
+    errors["div_grad_eq_laplacian"] = (
+        np.linalg.norm(grid.Div_central(Du) - Laplacian) < TOL
+    )
     assert errors["div_grad_eq_laplacian"] == np.False_
-    assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.True_
 
 
 def test_operators_identities_dirichlet_tridiagonal():
@@ -62,23 +61,23 @@ def test_operators_identities_dirichlet_tridiagonal():
         ny=64,
         bc_x=Ω.BoundaryCondition.DIRICHLET,
         bc_y=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
-    X, Y = np.meshgrid(grid.x, grid.y)
-    u = np.sin(2 * π * X) * np.sin(2 * π * Y)
+    u = np.sin(2 * π * grid.X) * np.sin(2 * π * grid.Y)
+    assert u.shape == (64, 64)
 
     # Test Operators
-    Du = grid.Grad(u)
-    Laplacian = grid.Laplacian(u)
+    Du = grid.Grad_pade(u)
+    Laplacian = grid.Laplacian_pade(u)
+    assert Du[0].shape == (64, 64)
+    assert Du[1].shape == (64, 64)
+    assert Laplacian.shape == (64, 64)
 
     errors = {}
-    errors["div_grad_eq_laplacian"] = np.linalg.norm(grid.Div(Du) - Laplacian) < TOL
-    errors["curl_grad_eq_zero"] = sp.sparse.linalg.norm(grid.curl @ grid.grad) < TOL
-    errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
+    errors["div_grad_eq_laplacian"] = (
+        np.linalg.norm(grid.Div_pade(Du) - Laplacian) < TOL
+    )
     assert errors["div_grad_eq_laplacian"] == np.False_
-    assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.False_
 
 
 def test_operators_identities_dirichlet_explicit():
@@ -87,23 +86,23 @@ def test_operators_identities_dirichlet_explicit():
         ny=64,
         bc_x=Ω.BoundaryCondition.DIRICHLET,
         bc_y=Ω.BoundaryCondition.DIRICHLET,
-        scheme=Ω.FiniteDifferenceScheme.PADE,
     )
     # Test function
-    X, Y = np.meshgrid(grid.x, grid.y)
-    u = np.sin(2 * π * X) * np.sin(2 * π * Y)
+    u = np.sin(2 * π * grid.X) * np.sin(2 * π * grid.Y)
+    assert u.shape == (64, 64)
 
     # Test Operators
-    Du = grid.Grad(u)
-    Laplacian = grid.Laplacian(u)
+    Du = grid.Grad_central(u)
+    Laplacian = grid.Laplacian_central(u)
+    assert Du[0].shape == (64, 64)
+    assert Du[1].shape == (64, 64)
+    assert Laplacian.shape == (64, 64)
 
     errors = {}
-    errors["div_grad_eq_laplacian"] = np.linalg.norm(grid.Div(Du) - Laplacian) < TOL
-    errors["curl_grad_eq_zero"] = sp.sparse.linalg.norm(grid.curl @ grid.grad) < TOL
-    errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
+    errors["div_grad_eq_laplacian"] = (
+        np.linalg.norm(grid.Div_central(Du) - Laplacian) < TOL
+    )
     assert errors["div_grad_eq_laplacian"] == np.False_
-    assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.False_
 
 
 def test_operators_identities_ghost_points_explicit():
@@ -112,22 +111,22 @@ def test_operators_identities_ghost_points_explicit():
         bc_y=Ω.BoundaryCondition.GHOST_POINTS,
         n_ghost_points_x=2,
         n_ghost_points_y=2,
-        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         r_width_x=1,
         r_width_y=1,
     )
     # Test function
-    X, Y = np.meshgrid(grid.x, grid.y)
-    u = np.sin(2 * π * X) * np.sin(2 * π * Y)
+    u = np.sin(2 * π * grid.X) * np.sin(2 * π * grid.Y)
+    assert u.shape == (104, 104)
 
     # Test Operators
-    Du = grid.Grad(u)
-    Laplacian = grid.Laplacian(u)
+    Du = grid.Grad_central(u)
+    Laplacian = grid.Laplacian_central(u)
+    assert Du[0].shape == (104, 104)
+    assert Du[1].shape == (104, 104)
+    assert Laplacian.shape == (104, 104)
 
     errors = {}
-    errors["div_grad_eq_laplacian"] = np.linalg.norm(grid.Div(Du) - Laplacian) < TOL
-    errors["curl_grad_eq_zero"] = sp.sparse.linalg.norm(grid.curl @ grid.grad) < TOL
-    errors["adjoint_consistency"] = sp.sparse.linalg.norm(grid.div + grid.grad.T) < TOL
+    errors["div_grad_eq_laplacian"] = (
+        np.linalg.norm(grid.Div_central(Du) - Laplacian) < TOL
+    )
     assert errors["div_grad_eq_laplacian"] == np.False_
-    assert errors["curl_grad_eq_zero"] == np.True_
-    assert errors["adjoint_consistency"] == np.False_

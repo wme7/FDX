@@ -7,6 +7,7 @@ import sympy as sb
 from matplotlib import pyplot as plt
 
 from fdx import finite_differences_grid as Ω
+from fdx.finite_differences_grid import BoundaryCondition as dΩ
 
 # Symbols & Constants
 π = np.pi
@@ -16,27 +17,18 @@ x, y = sb.symbols("x, y")
 Nx, Ny = 100, 100  # number of grid points in x and y directions
 Lx, Ly = 1.0, 1.0  # domain length in x and y directions
 rx, ry = 2, 2  # stencil width (total width is 2*r + 1)
-BCx, BCy = Ω.BoundaryCondition.PERIODIC, Ω.BoundaryCondition.DIRICHLET
-FD = Ω.FiniteDifferenceScheme.CENTRAL
+BCx, BCy = dΩ.PERIODIC, dΩ.DIRICHLET
 
-# Grid setup
+# fmt: off
 grid = Ω.Grid2d(
-    xa=0.0,
-    xb=Lx,
-    nx=Nx,
-    ya=0.0,
-    yb=Ly,
-    ny=Ny,
-    scheme=FD,
-    r_width_x=rx,
-    r_width_y=ry,
-    bc_x=BCx,
-    bc_y=BCy,
+    xa=0.0, xb=Lx, nx=Nx, r_width_x=rx, bc_x=BCx,
+    ya=0.0, yb=Ly, ny=Ny, r_width_y=ry, bc_y=BCy,
     verbose=False,
 )
+# fmt: on
 
 # Numerical grid
-x_num, y_num = np.meshgrid(grid.x, grid.y)
+x_num, y_num = grid.X, grid.Y
 
 # Set test function
 u = sb.sin(2 * π * x) * sb.sin(2 * π * y)
@@ -58,11 +50,11 @@ laplacian_u_func = sb.lambdify([x, y], laplacian_u, "numpy")
 
 # Compute numerical derivatives
 u_num = u_func(x_num, y_num)
-Dux = grid.Derivative(u_num, "x")
-Duy = grid.Derivative(u_num, "y")
-Duxy = grid.Derivative(u_num, "xy")
-Gradu = grid.Grad(u_num)
-Lu = grid.Laplacian(u_num)
+Dux = grid.Dx_central(u_num)
+Duy = grid.Dy_central(u_num)
+Duxy = grid.Dxy_central(u_num)
+Gradu = grid.Grad_central(u_num)
+Lu = grid.Laplacian_central(u_num)
 
 # Plot Derivatives and Laplacian
 fig = plt.figure(figsize=(6, 12))

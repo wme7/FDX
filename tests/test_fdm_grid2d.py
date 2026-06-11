@@ -13,22 +13,16 @@ def test_grid2d_dirichlet_central():
         bc_y=Ω.BoundaryCondition.DIRICHLET,
         n_ghost_points_x=0,
         n_ghost_points_y=0,
-        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
     size = 100 * 100
-    assert grid.n_gps_x == 0
-    assert grid.n_gps_y == 0
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
-    assert grid.laplacian.shape == (size, size)
+    assert grid.x.n_gps == 0
+    assert grid.y.n_gps == 0
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
+    assert grid.laplacian(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
 
 
 def test_grid2d_dirichlet_explicit():
@@ -43,22 +37,16 @@ def test_grid2d_dirichlet_explicit():
         bc_y=Ω.BoundaryCondition.DIRICHLET,
         n_ghost_points_x=0,
         n_ghost_points_y=0,
-        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
     size = 100 * 100
-    assert grid.n_gps_x == 0
-    assert grid.n_gps_y == 0
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
-    assert grid.laplacian.shape == (size, size)
+    assert grid.x.n_gps == 0
+    assert grid.y.n_gps == 0
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
+    assert grid.laplacian(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
 
 
 def test_grid2d_periodic_explicit():
@@ -73,22 +61,16 @@ def test_grid2d_periodic_explicit():
         bc_y=Ω.BoundaryCondition.PERIODIC,
         n_ghost_points_x=0,
         n_ghost_points_y=0,
-        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
     size = 100 * 100
-    assert grid.n_gps_x == 0
-    assert grid.n_gps_y == 0
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
-    assert grid.laplacian.shape == (size, size)
+    assert grid.x.n_gps == 0
+    assert grid.y.n_gps == 0
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
+    assert grid.laplacian(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
 
 
 def test_grid2d_ghost_points_explicit():
@@ -103,22 +85,16 @@ def test_grid2d_ghost_points_explicit():
         bc_y=Ω.BoundaryCondition.GHOST_POINTS,
         n_ghost_points_x=2,
         n_ghost_points_y=2,
-        scheme=Ω.FiniteDifferenceScheme.CENTRAL,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
-    size = (100 + 2 * grid.n_gps_x) * (100 + 2 * grid.n_gps_y)
-    assert grid.n_gps_x == 2
-    assert grid.n_gps_y == 2
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
-    assert grid.laplacian.shape == (size, size)
+    size = (100 + 2 * grid.x.n_gps) * (100 + 2 * grid.y.n_gps)
+    assert grid.x.n_gps == 2
+    assert grid.y.n_gps == 2
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
+    assert grid.laplacian(Ω.FiniteDifferenceScheme.CENTRAL).shape == (size, size)
 
 
 def test_grid2d_ghost_points_upwind():
@@ -133,21 +109,15 @@ def test_grid2d_ghost_points_upwind():
         bc_y=Ω.BoundaryCondition.GHOST_POINTS,
         n_ghost_points_x=2,
         n_ghost_points_y=2,
-        scheme=Ω.FiniteDifferenceScheme.UPWIND,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
-    size = (100 + 2 * grid.n_gps_x) * (100 + 2 * grid.n_gps_y)
-    assert grid.n_gps_x == 2
-    assert grid.n_gps_y == 2
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
+    size = (100 + 2 * grid.x.n_gps) * (100 + 2 * grid.y.n_gps)
+    assert grid.x.n_gps == 2
+    assert grid.y.n_gps == 2
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.UPWIND).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.UPWIND).shape == (size, size)
 
 
 def test_grid2d_ghost_points_downwind():
@@ -162,21 +132,15 @@ def test_grid2d_ghost_points_downwind():
         bc_y=Ω.BoundaryCondition.GHOST_POINTS,
         n_ghost_points_x=2,
         n_ghost_points_y=2,
-        scheme=Ω.FiniteDifferenceScheme.DOWNWIND,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
-    size = (100 + 2 * grid.n_gps_x) * (100 + 2 * grid.n_gps_y)
-    assert grid.n_gps_x == 2
-    assert grid.n_gps_y == 2
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
+    size = (100 + 2 * grid.x.n_gps) * (100 + 2 * grid.y.n_gps)
+    assert grid.x.n_gps == 2
+    assert grid.y.n_gps == 2
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.DOWNWIND).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.DOWNWIND).shape == (size, size)
 
 
 def test_grid2d_dirichlet_tridiagonal():
@@ -191,21 +155,16 @@ def test_grid2d_dirichlet_tridiagonal():
         bc_y=Ω.BoundaryCondition.DIRICHLET,
         n_ghost_points_x=0,
         n_ghost_points_y=0,
-        scheme=Ω.FiniteDifferenceScheme.PADE,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
     size = 10 * 10
-    assert grid.n_gps_x == 0
-    assert grid.n_gps_y == 0
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.laplacian.shape == (size, size)
+    assert grid.x.n_gps == 0
+    assert grid.y.n_gps == 0
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
+    assert grid.laplacian(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
 
 
 def test_grid2d_periodic_tridiagonal():
@@ -220,19 +179,13 @@ def test_grid2d_periodic_tridiagonal():
         bc_y=Ω.BoundaryCondition.PERIODIC,
         n_ghost_points_x=0,
         n_ghost_points_y=0,
-        scheme=Ω.FiniteDifferenceScheme.PADE,
         r_width_x=1,
         r_width_y=1,
         verbose=False,
     )
     size = 10 * 10
-    assert grid.n_gps_x == 0
-    assert grid.n_gps_y == 0
-    assert grid.Dx_operator.shape == (size, size)
-    assert grid.Dy_operator.shape == (size, size)
-    assert grid.Dxy_operator.shape == (size, size)
-    assert grid.Dyx_operator.shape == (size, size)
-    assert grid.grad.shape == (2 * size, size)
-    assert grid.div.shape == (size, 2 * size)
-    assert grid.curl.shape == (size, 2 * size)
-    assert grid.laplacian.shape == (size, size)
+    assert grid.x.n_gps == 0
+    assert grid.y.n_gps == 0
+    assert grid.Dx_operator(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
+    assert grid.Dy_operator(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)
+    assert grid.laplacian(Ω.FiniteDifferenceScheme.PADE).shape == (size, size)

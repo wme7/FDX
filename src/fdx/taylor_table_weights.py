@@ -6,7 +6,7 @@ from scipy.special import factorial
 # ---------------------------------------------------------------------------
 
 
-def fd_central_weights(
+def fd_pade_weights(
     m, alpha: list[int] | list[float] | None, beta: list[int] | list[float] | None
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -32,7 +32,7 @@ def fd_central_weights(
     # Remove self-reference (i=0) from α-list
     self_reference = None
     if 0 not in alpha:
-        raise ValueError("fd_central_weights: No self-reference in α-indexes list")
+        raise ValueError("fd_pade_weights: No self-reference in α-indexes list")
     else:
         self_reference = alpha.index(0)
         alpha.remove(0)

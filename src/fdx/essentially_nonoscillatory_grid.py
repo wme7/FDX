@@ -23,6 +23,7 @@ Field layout matches ``finite_differences_grid.Grid2d``: arrays are
 ``(ny, nx)`` with row-major flattening ``index = j * nx + i``.
 """
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum, auto
 from functools import cached_property
@@ -49,6 +50,7 @@ from .utils import build_rectangular_tridiagonal_matrix as rect_tridiag_oper
 class BoundaryCondition(Enum):
     PERIODIC = auto()
     DIRICHLET = auto()
+    DIRICHLET_HOMOGENEOUS = auto()
     GHOST_POINTS = auto()
 
 
@@ -90,7 +92,7 @@ def _uniform_1d_grid_axis(
             n_grid = n0 + 2 * n_gps
             a_grid = a0 - n_gps * h
             b_grid = b0 + n_gps * h
-            return a_grid, b_grid, n_grid, True, h, 2  # MD : not completed yet
+            return a_grid, b_grid, n_grid, True, h, 2
 
 
 # ------------------------------------------------------------------ #
@@ -103,69 +105,86 @@ class Grid1d:
         b: float = 1.0,
         n: int = 100,
         *,
-        bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
-        n_ghost_points: int = 0,
         scheme: NonOscillatoryScheme = NonOscillatoryScheme.WENO5,
         r_width: int = 3,
+        bc: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        n_ghost_points: int = 0,
         verbose: bool = False,
+        axis_name: str = "x",
     ):
 
-        self.r = 3  # stencil width
+        self.r = 3  # stencil width, fix for the time being
         self.bc = bc
-        self.scheme = scheme
         self.verbose = verbose
 
-        a_g, b_g, n_g, endpoint, h_g, n_gps = _uniform_1d_grid_axis(
-            a, b, n, bc, n_gps=3
+        xmin, xmax, n_new, endpoint, h, n_gps = _uniform_1d_grid_axis(
+            a,
+            b,
+            n,
+            bc,
+            n_gps=3,  # fix for the time being
         )
 
-        self.a = a_g
-        self.b = b_g
-        self.n = n_g
+        self.a = a
+        self.b = b
+        self.n = n_new
+        self.min = xmin
+        self.max = xmax
         self.n_gps = n_gps
-        self.h = h_g  # grid spacing
-        self.inv_h = 1.0 / h_g
+        self.h = h  # grid spacing
+        self.inv_h = 1.0 / h
+        self.scheme = scheme
 
-        self.x = np.linspace(
-            start=a_g, stop=b_g, num=n_g, endpoint=endpoint, dtype=float
+        self.nodes = np.linspace(
+            start=xmin, stop=xmax, num=n_new, endpoint=endpoint, dtype=float
         )
 
-        # Constants
+        # Default constants
         self.ϵ = 1e-6
 
         # print short summary of the grid
         fields = {
-            "x": f"[{self.a}, {self.b}]",
+            axis_name: f"[{self.a}, {self.b}]",
             "n": self.n,
             "h": f"{self.h:.6f}",
+            "r_width": self.r,
             "bc": self.bc.name,
-            "[default]scheme": self.scheme.name,
-            "r": self.r,
             "n_gps": self.n_gps,
         }
         body = ", ".join(f"{k}={v}" for k, v in fields.items())
         print(f"{type(self).__name__}({body})")
 
+    # ----------------------------------------- #
+    # Cached properties to build 1-d operators  #
+    # ----------------------------------------- #
     @cached_property
     def linearly_interpolate_boundaries(self) -> sp.sparse.csr_matrix:
         return lerp_oper(self.n, self.n_gps)
+
+    @cached_property
+    def weno5_weights(self) -> np.ndarray:
+        return fd_eno_weights(self.r)
+
+    @cached_property
+    def weno5_smooth_indicators_weights(self) -> list[np.ndarray]:
+        return fd_smooth_indicator_weights(self.r)
 
     @cached_property
     def crweno5_boundary_weights(
         self,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
-        outer_L = fd_eno_substencil_weights(self.r, 0) * self.inv_h
-        inner_L = fd_eno_substencil_weights(self.r + 1, 1) * self.inv_h
-        inner_R = fd_eno_substencil_weights(self.r + 1, 2) * self.inv_h
-        outer_R = fd_eno_substencil_weights(self.r, 2) * self.inv_h
+        outer_L = fd_eno_substencil_weights(self.r, 0)
+        inner_L = fd_eno_substencil_weights(self.r + 1, 1)
+        inner_R = fd_eno_substencil_weights(self.r + 1, 2)
+        outer_R = fd_eno_substencil_weights(self.r, 2)
 
         if self.verbose:
             np.set_printoptions(precision=3, linewidth=120)
-            print(f"outer_L:\t{outer_L * self.h}")
-            print(f"inner_L:\t{inner_L * self.h}")
-            print(f"inner_R:\t{inner_R * self.h}")
-            print(f"outer_R:\t{outer_R * self.h}")
+            print(f"outer_L:\t{outer_L}")
+            print(f"inner_L:\t{inner_L}")
+            print(f"inner_R:\t{inner_R}")
+            print(f"outer_R:\t{outer_R}")
 
         return outer_L, inner_L, inner_R, outer_R
 
@@ -250,27 +269,23 @@ class Grid1d:
 
         n_grid, n_gps, bc = self.n, self.n_gps, self.bc
         α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
-        ωL = fd_eno_weights(self.r)[:3] * self.inv_h
+        ωL = fd_eno_weights(self.r)[:3]
 
         # banded matrices for the WENO5 substencils
-        if bc == BoundaryCondition.PERIODIC:
-            sL0 = periodic_oper(n_grid, α[0], ωL[0])
-            sL1 = periodic_oper(n_grid, α[1], ωL[1])
-            sL2 = periodic_oper(n_grid, α[2], ωL[2])
-
-        elif bc == BoundaryCondition.DIRICHLET:
-            sL0 = rect_oper(n_grid, α[0], ωL[0], n_gps, r_reset=1)
-            sL1 = rect_oper(n_grid, α[1], ωL[1], n_gps, r_reset=1)
-            sL2 = rect_oper(n_grid, α[2], ωL[2], n_gps, r_reset=1)
-
-        elif bc == BoundaryCondition.GHOST_POINTS:
-            n_interior = n_grid - 2 * n_gps
-            sL0 = rect_oper(n_interior, α[0], ωL[0], n_gps, r_reset=1)
-            sL1 = rect_oper(n_interior, α[1], ωL[1], n_gps, r_reset=1)
-            sL2 = rect_oper(n_interior, α[2], ωL[2], n_gps, r_reset=1)
-
-        else:
-            raise ValueError(f"Unsupported BoundaryCondition: {bc!r}")
+        match bc:
+            case BoundaryCondition.PERIODIC:
+                sL0 = periodic_oper(n_grid, α[0], ωL[0])
+                sL1 = periodic_oper(n_grid, α[1], ωL[1])
+                sL2 = periodic_oper(n_grid, α[2], ωL[2])
+            case BoundaryCondition.DIRICHLET | BoundaryCondition.DIRICHLET_HOMOGENEOUS:
+                sL0 = rect_oper(n_grid, α[0], ωL[0], n_gps, r_reset=1)
+                sL1 = rect_oper(n_grid, α[1], ωL[1], n_gps, r_reset=1)
+                sL2 = rect_oper(n_grid, α[2], ωL[2], n_gps, r_reset=1)
+            case BoundaryCondition.GHOST_POINTS:
+                n_interior = n_grid - 2 * n_gps
+                sL0 = rect_oper(n_interior, α[0], ωL[0], n_gps, r_reset=1)
+                sL1 = rect_oper(n_interior, α[1], ωL[1], n_gps, r_reset=1)
+                sL2 = rect_oper(n_interior, α[2], ωL[2], n_gps, r_reset=1)
 
         if self.verbose:
             np.set_printoptions(precision=2, linewidth=120)
@@ -303,33 +318,39 @@ class Grid1d:
         match side:
             case "left" | "L":
                 d0, d1, d2 = 0.1, 0.6, 0.3
-                s = fd_eno_weights(self.r)[:3] * self.inv_h
+                s0, s1, s2 = self.weno5_weights[:3]
             case "right" | "R":
                 d0, d1, d2 = 0.3, 0.6, 0.1
-                s = fd_eno_weights(self.r)[1:] * self.inv_h
+                s0, s1, s2 = self.weno5_weights[1:]
             case _:
                 raise ValueError(f"Invalid side: {side!r}")
 
-        α = [[-2, -1, 0], [-1, 0, 1], [0, 1, 2]]
-        I0, I1, I2 = fd_smooth_indicator_weights(self.r)
-        beta00 = np.dot(u[α[0]], I0[0])
-        beta01 = np.dot(u[α[0]], I0[1])
-        beta10 = np.dot(u[α[1]], I1[0])
-        beta11 = np.dot(u[α[1]], I1[1])
-        beta20 = np.dot(u[α[2]], I2[0])
-        beta21 = np.dot(u[α[2]], I2[1])
-        β0 = beta00**2 + beta01**2 + self.ϵ
-        β1 = beta10**2 + beta11**2 + self.ϵ
-        β2 = beta20**2 + beta21**2 + self.ϵ
-        α0, α1, α2 = d0 / β0**2, d1 / β1**2, d2 / β2**2
+        u0, u1, u2 = u[0:3], u[1:4], u[2:5]
+        I0, I1, I2 = self.weno5_smooth_indicators_weights
+        beta00, beta01 = np.dot(u0, I0[0]), np.dot(u0, I0[1])
+        beta10, beta11 = np.dot(u1, I1[0]), np.dot(u1, I1[1])
+        beta20, beta21 = np.dot(u2, I2[0]), np.dot(u2, I2[1])
+        β0 = beta00 * beta00 + beta01 * beta01 + self.ϵ
+        β1 = beta10 * beta10 + beta11 * beta11 + self.ϵ
+        β2 = beta20 * beta20 + beta21 * beta21 + self.ϵ
+        α0, α1, α2 = d0 / (β0 * β0), d1 / (β1 * β1), d2 / (β2 * β2)
         inv_total = 1.0 / (α0 + α1 + α2)
         w0, w1, w2 = α0 * inv_total, α1 * inv_total, α2 * inv_total
 
-        return (
-            w0 * np.dot(u[α[0]], s[0])
-            + w1 * np.dot(u[α[1]], s[1])
-            + w2 * np.dot(u[α[2]], s[2])
+        return w0 * np.dot(u0, s0) + w1 * np.dot(u1, s1) + w2 * np.dot(u2, s2)
+
+    def _ghost_weno5_stencil(self, v: np.ndarray, interior_row: int) -> np.ndarray:
+        """Length-5 stencil ``v[j-2:j+3]`` for an interior-system row index.
+
+        Interior row ``r`` maps to the full-grid cell index ``j = n_gps + r``.
+        Negative indices follow the usual Python convention on the interior
+        block (length ``n - 2*n_gps``).
+        """
+        n_interior = self.n - 2 * self.n_gps
+        j = self.n_gps + (
+            interior_row if interior_row >= 0 else n_interior + interior_row
         )
+        return v[j - 2 : j + 3]
 
     def smoothness_indicators_gb(self, u: np.ndarray, side: str) -> list[np.ndarray]:
         match side:
@@ -354,42 +375,59 @@ class Grid1d:
                 a0 = (2.0 * w0 + w1) / 3.0
                 a1 = (w0 + 2.0 * w1 + 2.0 * w2) / 3.0
                 a2 = w2 / 3.0
-                b0 = self.inv_h * w0 / 6.0
-                b1 = self.inv_h * (5.0 * w0 + 5.0 * w1 + w2) / 6.0
-                b2 = self.inv_h * (w1 + 5.0 * w2) / 6.0
+                b0 = w0 / 6.0
+                b1 = (5.0 * w0 + 5.0 * w1 + w2) / 6.0
+                b2 = (w1 + 5.0 * w2) / 6.0
             case "right" | "R":
                 a0 = w0 / 3.0
                 a1 = (w2 + 2.0 * w1 + 2.0 * w0) / 3.0
                 a2 = (2.0 * w2 + w1) / 3.0
-                b0 = self.inv_h * (w1 + 5.0 * w0) / 6.0
-                b1 = self.inv_h * (5.0 * w2 + 5.0 * w1 + w0) / 6.0
-                b2 = self.inv_h * w2 / 6.0
+                b0 = (w1 + 5.0 * w0) / 6.0
+                b1 = (5.0 * w2 + 5.0 * w1 + w0) / 6.0
+                b2 = w2 / 6.0
 
         return [a0, a1, a2, b0, b1, b2]
 
-    def Dx_upwind(self, u: np.ndarray) -> np.ndarray:
+    def left_WENO5_reconstruction(self, u: np.ndarray) -> np.ndarray:
         # Interpolate the solution to the left and right interfaces
         if self.bc == BoundaryCondition.DIRICHLET:
             v = self.linearly_interpolate_boundaries @ u
         else:
             v = u
 
-        if self.scheme == NonOscillatoryScheme.WENO5:
-            # Evaluate the left-biased WENO reconstruction
-            w0L, w1L, w2L = self.smoothness_indicators_js(v, "L")
-            sL = (self.weno5_left_substencils_stack @ v).reshape(3, -1)
-            uL = w0L * sL[0] + w1L * sL[1] + w2L * sL[2]
+        # Evaluate the left-biased WENO reconstruction
+        w0L, w1L, w2L = self.smoothness_indicators_js(v, "L")
+        sL = (self.weno5_left_substencils_stack @ v).reshape(3, -1)
+        return w0L * sL[0] + w1L * sL[1] + w2L * sL[2]
 
-        elif self.scheme == NonOscillatoryScheme.CRWENO5:
-            # Compute the smoothness indicators
-            a0, a1, a2, b0, b1, b2 = self.smoothness_indicators_gb(v, "L")
+    def right_WENO5_reconstruction(self, u: np.ndarray) -> np.ndarray:
+        # Interpolate the solution to the left and right interfaces
+        if self.bc == BoundaryCondition.DIRICHLET:
+            v = self.linearly_interpolate_boundaries @ u
+        else:
+            v = u
 
-            # Build A_ij and B_ij matrices
-            if self.bc == BoundaryCondition.PERIODIC:
+        # Evaluate the right-biased WENO reconstruction
+        w0R, w1R, w2R = self.smoothness_indicators_js(v, "R")
+        sR = (self.weno5_right_substencils_stack @ v).reshape(3, -1)
+        return w0R * sR[0] + w1R * sR[1] + w2R * sR[2]
+
+    def left_CRWENO5_reconstruction(self, u: np.ndarray) -> np.ndarray:
+        # Interpolate the solution to the left and right interfaces
+        if self.bc == BoundaryCondition.DIRICHLET:
+            v = self.linearly_interpolate_boundaries @ u
+        else:
+            v = u
+
+        # Compute the smoothness indicators
+        a0, a1, a2, b0, b1, b2 = self.smoothness_indicators_gb(v, "L")
+
+        # Build A_ij and B_ij matrices
+        match self.bc:
+            case BoundaryCondition.PERIODIC:
                 A = periodic_tridiag_oper(a0, a1, a2)
                 rhs = b0 * np.roll(v, 1) + b1 * v + b2 * np.roll(v, -1)
-
-            elif self.bc == BoundaryCondition.DIRICHLET:
+            case BoundaryCondition.DIRICHLET:
                 outer_L, inner_L, inner_R, outer_R = self.crweno5_boundary_weights
                 a0[0], a1[0], a2[0] = 0, 1, 0
                 a0[1], a1[1], a2[1] = 0, 1, 0
@@ -402,9 +440,11 @@ class Grid1d:
                 rhs[1] = np.dot(inner_L, u[:4])
                 rhs[-2] = np.dot(inner_R, u[-4:])
                 rhs[-1] = np.dot(outer_R, u[-3:])
-
-            elif self.bc == BoundaryCondition.GHOST_POINTS:
-                outer_L, inner_L, inner_R, outer_R = self.crweno5_boundary_weights
+            case BoundaryCondition.DIRICHLET_HOMOGENEOUS:
+                A = rect_tridiag_oper(a0, a1, a2)
+                B = rect_tridiag_oper(b0, b1, b2, n_ghost_points=2)
+                rhs = B @ v
+            case BoundaryCondition.GHOST_POINTS:
                 ng = self.n_gps
                 a0[0], a1[0], a2[0] = 0, 1, 0
                 a0[1], a1[1], a2[1] = 0, 1, 0
@@ -413,55 +453,34 @@ class Grid1d:
                 A = rect_tridiag_oper(a0, a1, a2)
                 B = rect_tridiag_oper(b0, b1, b2, n_ghost_points=ng)
                 rhs = B @ v
-                # MD : should I use a WENO5 reconstructions here?
-                rhs[0] = np.dot(outer_L, v[ng : ng + 3])
-                rhs[1] = np.dot(inner_L, v[ng : ng + 4])
-                rhs[-2] = np.dot(inner_R, v[-ng - 4 : -ng])
-                rhs[-1] = np.dot(outer_R, v[-ng - 3 : -ng])
+                for row in (0, 1, -2, -1):
+                    rhs[row] = self.pointwise_eval_weno5_substencil(
+                        self._ghost_weno5_stencil(v, row), "L"
+                    )
 
-            else:
-                raise ValueError(f"Unsupported BoundaryCondition: {self.bc!r}")
+        # if DEBUG:
+        #     np.set_printoptions(precision=2, linewidth=120)
+        #     print(f"A ({A.shape}):\n{A.toarray()}")
+        #     print(f"B ({B.shape}):\n{B.toarray()}")
 
-            # Compute uL: u_j+1/2
-            lu = sp.sparse.linalg.splu(A.tocsc())
-            uL = lu.solve(rhs)
+        return sp.sparse.linalg.splu(A.tocsc()).solve(rhs)
 
-            # if DEBUG:
-            #     np.set_printoptions(precision=2, linewidth=120)
-            #     print(f"A ({A.shape}):\n{A.toarray()}")
-            #     print(f"B ({B.shape}):\n{B.toarray()}")
-
-        # Compute the derivative for the left-biased stencil
-        if self.bc == BoundaryCondition.PERIODIC:
-            return uL - np.roll(uL, shift=1)
-        elif self.bc == BoundaryCondition.DIRICHLET:
-            return np.pad(uL[1:-1] - uL[:-2], (1, 1), mode="constant")
-        else:  # self.bc == BoundaryCondition.GHOST_POINTS
-            return np.pad(uL[1:-1] - uL[:-2], (self.r, self.r), mode="constant")
-
-    def Dx_downwind(self, u: np.ndarray) -> np.ndarray:
+    def right_CRWENO5_reconstruction(self, u: np.ndarray) -> np.ndarray:
         # Interpolate the solution to the left and right interfaces
         if self.bc == BoundaryCondition.DIRICHLET:
             v = self.linearly_interpolate_boundaries @ u
         else:
             v = u
 
-        if self.scheme == NonOscillatoryScheme.WENO5:
-            # Evaluate the right-biased WENO reconstruction
-            w0R, w1R, w2R = self.smoothness_indicators_js(v, "R")
-            sR = (self.weno5_right_substencils_stack @ v).reshape(3, -1)
-            uR = w0R * sR[0] + w1R * sR[1] + w2R * sR[2]
+        # Compute the smoothness indicators
+        a0, a1, a2, b0, b1, b2 = self.smoothness_indicators_gb(v, "R")
 
-        elif self.scheme == NonOscillatoryScheme.CRWENO5:
-            # Compute the smoothness indicators
-            a0, a1, a2, b0, b1, b2 = self.smoothness_indicators_gb(v, "R")
-
-            # Build A_ij and B_ij matrices
-            if self.bc == BoundaryCondition.PERIODIC:
+        # Build A_ij and B_ij matrices
+        match self.bc:
+            case BoundaryCondition.PERIODIC:
                 A = periodic_tridiag_oper(a0, a1, a2)
                 rhs = b0 * np.roll(v, 1) + b1 * v + b2 * np.roll(v, -1)
-
-            elif self.bc == BoundaryCondition.DIRICHLET:
+            case BoundaryCondition.DIRICHLET:
                 outer_L, inner_L, inner_R, _ = self.crweno5_boundary_weights
                 a0[1], a1[1], a2[1] = 0, 1, 0
                 a0[2], a1[2], a2[2] = 0, 1, 0
@@ -474,9 +493,11 @@ class Grid1d:
                 rhs[2] = np.dot(inner_L, u[:4])
                 rhs[-2] = np.dot(inner_L, u[-4:])
                 rhs[-1] = np.dot(inner_R, u[-4:])
-
-            elif self.bc == BoundaryCondition.GHOST_POINTS:
-                outer_L, inner_L, inner_R, _ = self.crweno5_boundary_weights
+            case BoundaryCondition.DIRICHLET_HOMOGENEOUS:
+                A = rect_tridiag_oper(a0, a1, a2)
+                B = rect_tridiag_oper(b0, b1, b2, n_ghost_points=2)
+                rhs = B @ v
+            case BoundaryCondition.GHOST_POINTS:
                 ng = self.n_gps
                 a0[1], a1[1], a2[1] = 0, 1, 0
                 a0[2], a1[2], a2[2] = 0, 1, 0
@@ -485,31 +506,96 @@ class Grid1d:
                 A = rect_tridiag_oper(a0, a1, a2)
                 B = rect_tridiag_oper(b0, b1, b2, n_ghost_points=ng)
                 rhs = B @ v
-                # MD : should I use a WENO5 reconstructions here?
-                rhs[1] = np.dot(outer_L, v[ng : ng + 3])
-                rhs[2] = np.dot(inner_L, v[ng : ng + 4])
-                rhs[-2] = np.dot(inner_L, v[-ng - 4 : -ng])
-                rhs[-1] = np.dot(inner_R, v[-ng - 4 : -ng])
+                for row in (1, 2, -2, -1):
+                    rhs[row] = self.pointwise_eval_weno5_substencil(
+                        self._ghost_weno5_stencil(v, row), "R"
+                    )
 
-            else:
-                raise ValueError(f"Unsupported BoundaryCondition: {self.bc!r}")
+        # if DEBUG
+        #     np.set_printoptions(precision=2, linewidth=120)
+        #     print(f"A ({A.shape}):\n{A.toarray()}")
+        #     print(f"B ({B.shape}):\n{B.toarray()}")
 
-            # Compute uR: u_j+1/2
-            lu = sp.sparse.linalg.splu(A.tocsc())
-            uR = lu.solve(rhs)
+        return sp.sparse.linalg.splu(A.tocsc()).solve(rhs)
 
-            # if DEBUG
-            #     np.set_printoptions(precision=2, linewidth=120)
-            #     print(f"A ({A.shape}):\n{A.toarray()}")
-            #     print(f"B ({B.shape}):\n{B.toarray()}")
+    def Dx_rusanov(
+        self, u: np.ndarray, flux_fn: Callable[[np.ndarray], np.ndarray]
+    ) -> np.ndarray:
+        match self.scheme:
+            case NonOscillatoryScheme.WENO5:
+                uL = self.left_WENO5_reconstruction(u)
+                uR = self.right_WENO5_reconstruction(u)
+            case NonOscillatoryScheme.CRWENO5:
+                uL = self.left_CRWENO5_reconstruction(u)
+                uR = self.right_CRWENO5_reconstruction(u)
+
+        # uL[j] = u^L_{j+1/2}; uR[j] = u^R_{j-1/2}.
+        # Rusanov flux at j+1/2 pairs uL[j] with uR[j+1].
+        match self.bc:
+            case BoundaryCondition.PERIODIC:
+                uR_if = np.roll(uR, shift=-1)
+            case _:
+                uR_if = np.empty_like(uR)
+                uR_if[:-1] = uR[1:]
+                uR_if[-1] = uR[-1]
+
+        fL = flux_fn(uL)
+        fR = flux_fn(uR_if)
+
+        match self.bc:
+            case BoundaryCondition.PERIODIC:
+                lambda_max = np.maximum(np.abs(uL), np.abs(uR_if))
+                f = 0.5 * (fL + fR) - 0.5 * lambda_max * (uR_if - uL)
+                return (f - np.roll(f, shift=1)) * self.inv_h
+            case BoundaryCondition.DIRICHLET | BoundaryCondition.DIRICHLET_HOMOGENEOUS:
+                lambda_max = np.maximum(np.abs(uL), np.abs(uR_if))
+                f = 0.5 * (fL + fR) - 0.5 * lambda_max * (uR_if - uL)
+                return np.pad(f[1:-1] - f[:-2], (1, 1), mode="constant") * self.inv_h
+            case BoundaryCondition.GHOST_POINTS:
+                lambda_max = np.maximum(np.abs(uL), np.abs(uR_if))
+                f = 0.5 * (fL + fR) - 0.5 * lambda_max * (uR_if - uL)
+                return (
+                    np.pad(f[1:-1] - f[:-2], (self.r, self.r), mode="constant")
+                    * self.inv_h
+                )
+
+    def Dx_upwind(self, u: np.ndarray) -> np.ndarray:
+        match self.scheme:
+            case NonOscillatoryScheme.WENO5:
+                uL = self.left_WENO5_reconstruction(u)
+            case NonOscillatoryScheme.CRWENO5:
+                uL = self.left_CRWENO5_reconstruction(u)
+
+        # Compute the derivative for the left-biased stencil
+        match self.bc:
+            case BoundaryCondition.PERIODIC:
+                return (uL - np.roll(uL, shift=1)) * self.inv_h
+            case BoundaryCondition.DIRICHLET | BoundaryCondition.DIRICHLET_HOMOGENEOUS:
+                return np.pad(uL[1:-1] - uL[:-2], (1, 1), mode="constant") * self.inv_h
+            case BoundaryCondition.GHOST_POINTS:
+                return (
+                    np.pad(uL[1:-1] - uL[:-2], (self.r, self.r), mode="constant")
+                    * self.inv_h
+                )
+
+    def Dx_downwind(self, u: np.ndarray) -> np.ndarray:
+        match self.scheme:
+            case NonOscillatoryScheme.WENO5:
+                uR = self.right_WENO5_reconstruction(u)
+            case NonOscillatoryScheme.CRWENO5:
+                uR = self.right_CRWENO5_reconstruction(u)
 
         # Compute the derivative for the right-biased stencil
-        if self.bc == BoundaryCondition.PERIODIC:
-            return np.roll(uR, shift=-1) - uR
-        elif self.bc == BoundaryCondition.DIRICHLET:
-            return np.pad(uR[2:] - uR[1:-1], (1, 1), mode="constant")
-        else:  # self.bc == BoundaryCondition.GHOST_POINTS
-            return np.pad(uR[2:] - uR[1:-1], (self.r, self.r), mode="constant")
+        match self.bc:
+            case BoundaryCondition.PERIODIC:
+                return (np.roll(uR, shift=-1) - uR) * self.inv_h
+            case BoundaryCondition.DIRICHLET | BoundaryCondition.DIRICHLET_HOMOGENEOUS:
+                return np.pad(uR[2:] - uR[1:-1], (1, 1), mode="constant") * self.inv_h
+            case BoundaryCondition.GHOST_POINTS:
+                return (
+                    np.pad(uR[2:] - uR[1:-1], (self.r, self.r), mode="constant")
+                    * self.inv_h
+                )
 
 
 def _apply_1d_derivative(
@@ -586,57 +672,52 @@ class Grid2d:
         yb: float = 1.0,
         ny: int = 100,
         *,
-        bcx: BoundaryCondition = BoundaryCondition.DIRICHLET,
-        bcy: BoundaryCondition = BoundaryCondition.DIRICHLET,
-        scheme: NonOscillatoryScheme = NonOscillatoryScheme.WENO5,
+        r_width_x: int = 3,
+        r_width_y: int = 3,
+        bc_x: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        bc_y: BoundaryCondition = BoundaryCondition.DIRICHLET,
+        n_ghost_points_x: int = 0,
+        n_ghost_points_y: int = 0,
         verbose: bool = False,
         workers: int | None = None,
     ):
-        self.bcx = bcx
-        self.bcy = bcy
-        self.scheme = scheme
-        self.verbose = verbose
-        self.workers = workers
+        self.x = Grid1d(
+            a=xa,
+            b=xb,
+            n=nx,
+            r_width=r_width_x,
+            bc=bc_x,
+            n_ghost_points=n_ghost_points_x,
+            verbose=verbose,
+        )
+        self.y = Grid1d(
+            a=ya,
+            b=yb,
+            n=ny,
+            r_width=r_width_y,
+            bc=bc_y,
+            n_ghost_points=n_ghost_points_y,
+            verbose=verbose,
+        )
+        self.workers = workers if workers is not None else 1
 
-        self.gx = Grid1d(a=xa, b=xb, n=nx, bc=bcx, scheme=scheme, verbose=verbose)
-        self.gy = Grid1d(a=ya, b=yb, n=ny, bc=bcy, scheme=scheme, verbose=verbose)
-
-        self.xa = self.gx.a
-        self.xb = self.gx.b
-        self.nx = self.gx.n
-        self.x = self.gx.x
-        self.hx = self.gx.h
-
-        self.ya = self.gy.a
-        self.yb = self.gy.b
-        self.ny = self.gy.n
-        self.y = self.gy.x
-        self.hy = self.gy.h
-
-        self.r = self.gx.r
-
-    @cached_property
-    def inv_hx(self) -> float:
-        return self.gx.inv_h
-
-    @cached_property
-    def inv_hy(self) -> float:
-        return self.gy.inv_h
-
+    # ------------------------------------------- #
+    # Methods for building the discrete operators #
+    # ------------------------------------------- #
     @cached_property
     def X(self) -> np.ndarray:
         """Node coordinates, shape ``(ny, nx)``."""
-        return self.x[np.newaxis, :].repeat(self.ny, axis=0)
+        return self.x.nodes[np.newaxis, :].repeat(self.y.n, axis=0)
 
     @cached_property
     def Y(self) -> np.ndarray:
         """Node coordinates, shape ``(ny, nx)``."""
-        return self.y[:, np.newaxis].repeat(self.nx, axis=1)
+        return self.y.nodes[:, np.newaxis].repeat(self.x.n, axis=1)
 
     def _check_shape(self, u: np.ndarray) -> None:
-        if u.shape != (self.ny, self.nx):
+        if u.shape != (self.x.n, self.y.n):
             raise ValueError(
-                f"Expected field shape ({self.ny}, {self.nx}), got {u.shape}."
+                f"Expected field shape ({self.x.n}, {self.y.n}), got {u.shape}."
             )
 
     def _derivative_workers(self, workers: int | None) -> int | None:
@@ -646,14 +727,14 @@ class Grid2d:
         """Left-biased d/dx applied row-wise along the x-axis."""
         self._check_shape(u)
         return _apply_1d_derivative(
-            self.gx, "Dx_upwind", u, axis="x", workers=self._derivative_workers(workers)
+            self.x, "Dx_upwind", u, axis="x", workers=self._derivative_workers(workers)
         )
 
     def Dx_downwind(self, u: np.ndarray, *, workers: int | None = None) -> np.ndarray:
         """Right-biased d/dx applied row-wise along the x-axis."""
         self._check_shape(u)
         return _apply_1d_derivative(
-            self.gx,
+            self.x,
             "Dx_downwind",
             u,
             axis="x",
@@ -664,48 +745,16 @@ class Grid2d:
         """Left-biased d/dy applied column-wise along the y-axis."""
         self._check_shape(u)
         return _apply_1d_derivative(
-            self.gy, "Dx_upwind", u, axis="y", workers=self._derivative_workers(workers)
+            self.y, "Dx_upwind", u, axis="y", workers=self._derivative_workers(workers)
         )
 
     def Dy_downwind(self, u: np.ndarray, *, workers: int | None = None) -> np.ndarray:
         """Right-biased d/dy applied column-wise along the y-axis."""
         self._check_shape(u)
         return _apply_1d_derivative(
-            self.gy,
+            self.y,
             "Dx_downwind",
             u,
             axis="y",
             workers=self._derivative_workers(workers),
         )
-
-    def Derivative(
-        self,
-        u: np.ndarray,
-        axis: str,
-        *,
-        bias: str = "upwind",
-    ) -> np.ndarray:
-        """Upwind-biased partial derivative on a 2D field.
-
-        Parameters
-        ----------
-        u : (ny, nx) array
-            Scalar field on the grid.
-        axis : {"x", "y"}
-            Coordinate direction.
-        bias : {"upwind", "downwind"}
-            Reconstruction bias (left- or right-biased at interfaces).
-        """
-        match bias:
-            case "upwind":
-                fn_x, fn_y = self.Dx_upwind, self.Dy_upwind
-            case "downwind":
-                fn_x, fn_y = self.Dx_downwind, self.Dy_downwind
-            case _:
-                raise ValueError(f"Invalid bias: {bias!r}")
-
-        if axis == "x":
-            return fn_x(u)
-        if axis == "y":
-            return fn_y(u)
-        raise ValueError(f"Invalid axis: {axis!r}")

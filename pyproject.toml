@@ -1,6 +1,6 @@
 [project]
 name = "fdx"
-version = "0.2.1"
+version = "0.2.2"
 description = "A high-order Finite-Difference eXtended (FDX) library for Python."
 readme = "README.md"
 authors = [
@@ -11,6 +11,9 @@ dependencies = [
     "numpy>=2.4.3",
     "scipy>=1.17.1",
 ]
+
+[project.scripts]
+fdx = "fdx.__init__:main"
 
 [project.optional-dependencies]
 plot = [

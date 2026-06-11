@@ -2,7 +2,7 @@ import numpy as np
 
 from fdx.eno_weights import fd_eno_weights, fd_smooth_indicator_weights
 from fdx.fornberg_weights import fd_explicit_weights
-from fdx.taylor_table_weights import fd_central_weights
+from fdx.taylor_table_weights import fd_pade_weights
 
 
 # -----------------------------------------------------------------------
@@ -108,24 +108,24 @@ def test_Fornberg_biased_schemes_2nd_derivative():
 # Central difference schemes through Taylor table
 # -----------------------------------------------------------------------
 def test_Taylor_table_central_schemes_1st_derivative():
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[0], beta=[-1, 0, 1])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[-1, 0, 1])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 3
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-1 / 2, 0, 1 / 2])
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[0], beta=[-2, -1, 0, 1, 2])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[-2, -1, 0, 1, 2])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 5
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [1 / 12, -2 / 3, 0, 2 / 3, -1 / 12])
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=1, alpha=[0], beta=[-3, -2, -1, 0, 1, 2, 3]
     )
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 7
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-1 / 60, 3 / 20, -3 / 4, 0, 3 / 4, -3 / 20, 1 / 60])
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=1, alpha=[0], beta=[-4, -3, -2, -1, 0, 1, 2, 3, 4]
     )
     assert len(alpha_coefs) == 1
@@ -138,17 +138,17 @@ def test_Taylor_table_central_schemes_1st_derivative():
 
 
 def test_Taylor_table_central_schemes_2nd_derivative():
-    alpha_coefs, beta_coefs = fd_central_weights(m=2, alpha=[0], beta=[-1, 0, 1])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[0], beta=[-1, 0, 1])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 3
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [1, -2, 1])
-    alpha_coefs, beta_coefs = fd_central_weights(m=2, alpha=[0], beta=[-2, -1, 0, 1, 2])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[0], beta=[-2, -1, 0, 1, 2])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 5
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-1 / 12, 4 / 3, -5 / 2, 4 / 3, -1 / 12])
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=2, alpha=[0], beta=[-3, -2, -1, 0, 1, 2, 3]
     )
     assert len(alpha_coefs) == 1
@@ -157,7 +157,7 @@ def test_Taylor_table_central_schemes_2nd_derivative():
     assert np.allclose(
         beta_coefs, [1 / 90, -3 / 20, 3 / 2, -49 / 18, 3 / 2, -3 / 20, 1 / 90]
     )
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=2, alpha=[0], beta=[-4, -3, -2, -1, 0, 1, 2, 3, 4]
     )
     assert len(alpha_coefs) == 1
@@ -170,34 +170,32 @@ def test_Taylor_table_central_schemes_2nd_derivative():
 
 
 def test_Taylor_table_biased_schemes_1st_derivative():
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[0], beta=[0, 1])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[0, 1])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 2
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-1, 1])
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[0], beta=[0, 1, 2])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[0, 1, 2])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 3
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-3 / 2, 2, -1 / 2])
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[0], beta=[0, 1, 2, 3])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[0, 1, 2, 3])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 4
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-11 / 6, 3, -3 / 2, 1 / 3])
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[0], beta=[0, 1, 2, 3, 4])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[0, 1, 2, 3, 4])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 5
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-25 / 12, 4, -3, 4 / 3, -1 / 4])
-    alpha_coefs, beta_coefs = fd_central_weights(
-        m=1, alpha=[0], beta=[0, 1, 2, 3, 4, 5]
-    )
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[0], beta=[0, 1, 2, 3, 4, 5])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 6
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [-137 / 60, 5, -5, 10 / 3, -5 / 4, 1 / 5])
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=1, alpha=[0], beta=[0, 1, 2, 3, 4, 5, 6]
     )
     assert len(alpha_coefs) == 1
@@ -209,29 +207,27 @@ def test_Taylor_table_biased_schemes_1st_derivative():
 
 
 def test_Taylor_table_biased_schemes_2nd_derivative():
-    alpha_coefs, beta_coefs = fd_central_weights(m=2, alpha=[0], beta=[0, 1, 2])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[0], beta=[0, 1, 2])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 3
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [1, -2, 1])
-    alpha_coefs, beta_coefs = fd_central_weights(m=2, alpha=[0], beta=[0, 1, 2, 3])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[0], beta=[0, 1, 2, 3])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 4
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [2, -5, 4, -1])
-    alpha_coefs, beta_coefs = fd_central_weights(m=2, alpha=[0], beta=[0, 1, 2, 3, 4])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[0], beta=[0, 1, 2, 3, 4])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 5
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [35 / 12, -26 / 3, 19 / 2, -14 / 3, 11 / 12])
-    alpha_coefs, beta_coefs = fd_central_weights(
-        m=2, alpha=[0], beta=[0, 1, 2, 3, 4, 5]
-    )
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[0], beta=[0, 1, 2, 3, 4, 5])
     assert len(alpha_coefs) == 1
     assert len(beta_coefs) == 6
     assert np.allclose(alpha_coefs, [1])
     assert np.allclose(beta_coefs, [15 / 4, -77 / 6, 107 / 6, -13, 61 / 12, -5 / 6])
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=2, alpha=[0], beta=[0, 1, 2, 3, 4, 5, 6]
     )
     assert len(alpha_coefs) == 1
@@ -240,7 +236,7 @@ def test_Taylor_table_biased_schemes_2nd_derivative():
     assert np.allclose(
         beta_coefs, [203 / 45, -87 / 5, 117 / 4, -254 / 9, 33 / 2, -27 / 5, 137 / 180]
     )
-    alpha_coefs, beta_coefs = fd_central_weights(
+    alpha_coefs, beta_coefs = fd_pade_weights(
         m=2, alpha=[0], beta=[0, 1, 2, 3, 4, 5, 6, 7]
     )
     assert len(alpha_coefs) == 1
@@ -275,15 +271,13 @@ def test_Fornberg_1998_Table_1_irregular_grids():
         coefs, [-195 / 14, 26.1808050, -408 / 25, 89 / 20, -0.394586466, 21 / 1700]
     )  # Errata in Fornberg 1998
     # 5. Standard compact scheme (α = [-1, 0, 1], β = [-1, 0, 1])
-    alpha_coefs, beta_coefs = fd_central_weights(m=1, alpha=[-1, 0, 1], beta=[-1, 0, 1])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[-1, 0, 1], beta=[-1, 0, 1])
     assert len(alpha_coefs) == 3
     assert len(beta_coefs) == 3
     assert np.allclose(alpha_coefs, [1 / 4, 1, 1 / 4])
     assert np.allclose(beta_coefs, [-3 / 4, 0, 3 / 4])
     # 6. Adams-Bashforth scheme (α = [-3, -2, -1, 0], β = [0, 1])
-    alpha_coefs, beta_coefs = fd_central_weights(
-        m=1, alpha=[-3, -2, -1, 0], beta=[0, 1]
-    )
+    alpha_coefs, beta_coefs = fd_pade_weights(m=1, alpha=[-3, -2, -1, 0], beta=[0, 1])
     assert len(alpha_coefs) == 4
     assert len(beta_coefs) == 2
     assert np.allclose(alpha_coefs, [-9 / 55, 37 / 55, -59 / 55, 1])
@@ -295,7 +289,7 @@ def test_Fornberg_1998_Table_1_irregular_grids():
 # -----------------------------------------------------------------------
 def test_Fornberg_1998_Table_4_2nd_order_compact_scheme():
     # 2nd order compact scheme (α = [-1, 0, 1], β = [-1, 0, 1])
-    alpha_coefs, beta_coefs = fd_central_weights(m=2, alpha=[-1, 0, 1], beta=[-1, 0, 1])
+    alpha_coefs, beta_coefs = fd_pade_weights(m=2, alpha=[-1, 0, 1], beta=[-1, 0, 1])
     assert len(alpha_coefs) == 3
     assert len(beta_coefs) == 3
     assert np.allclose(alpha_coefs, [1 / 10, 1, 1 / 10])

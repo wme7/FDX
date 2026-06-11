@@ -1,9 +1,32 @@
+from fractions import Fraction
+
 import numpy as np
 import scipy as sp
 
-# ---------------------------------------------------------------------------
-# Utility functions
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------ #
+#  Rational Float Class                                              #
+# ------------------------------------------------------------------ #
+
+
+class RationalFloat:
+    def __init__(self, value):
+        self.value = float(value)
+
+    def __format__(self, spec):
+        if spec.endswith("r"):
+            max_den = 1_000_000
+
+            if spec.startswith(".") and spec[:-1] != ".":
+                max_den = int(spec[1:-1])
+
+            return str(Fraction(self.value).limit_denominator(max_den))
+
+        return format(self.value, spec)
+
+
+# ------------------------------------------------------------------ #
+#  Operator builders                                                 #
+# ------------------------------------------------------------------ #
 
 
 def build_square_banded_matrix(
@@ -173,6 +196,116 @@ def build_mirror_symmetric_operator(mat: sp.sparse.csr_matrix) -> sp.sparse.csr_
         sp.sparse.csr_matrix: The mirror symmetric operator.
     """
     return sp.sparse.csr_matrix(sp.sparse.lil_matrix(mat).tolil()[::-1, :][:, ::-1])
+
+
+# ------------------------------------------------------------------ #
+#  Operator helper                                                   #
+# ------------------------------------------------------------------ #
+
+
+def ensure_sparse(D):
+    """Ensure CSR format: wrap dense np.ndarray results in sparse."""
+    if isinstance(D, np.ndarray):
+        return sp.sparse.csr_matrix(D)
+    if sp.sparse.isspmatrix_csr(D):
+        return D
+    return D.tocsr()
+
+
+# ------------------------------------------------------------------ #
+# Tridiagonal Matrix Algorithm  (Thomas Algorithm)                   #
+# ------------------------------------------------------------------ #
+
+
+def solve_tridiagonal(
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    r: np.ndarray,
+    *,
+    x: np.ndarray | None = None,
+    s: int = 0,
+    e: int | None = None,
+) -> np.ndarray:
+    """Thomas algorithm for A x = r on rows s..e (inclusive).
+    a, b, c are length-n diagonals with A[i, i-1]=a[i], A[i,i]=b[i], A[i,i+1]=c[i].
+    a[0] and c[n-1] are ignored (non-periodic tridiagonal).
+    """
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    c = np.asarray(c, dtype=float)
+    r = np.asarray(r, dtype=float)
+    n = b.size
+    if e is None:
+        e = n - 1
+    if x is None:
+        x = np.zeros(n, dtype=float)
+    else:
+        x = np.asarray(x, dtype=float)
+    gam = np.empty(e + 1, dtype=float)
+    bet = b[s]
+    x[s] = r[s] / bet
+    for i in range(s + 1, e + 1):
+        gam[i] = c[i - 1] / bet
+        bet = b[i] - a[i] * gam[i]
+        x[i] = (r[i] - a[i] * x[i - 1]) / bet
+    for i in range(e - 1, s - 1, -1):
+        x[i] -= gam[i + 1] * x[i + 1]
+    return x
+
+
+def solve_cyclic_tridiagonal(
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    alpha: float,
+    beta: float,
+    r: np.ndarray,
+    *,
+    x: np.ndarray | None = None,
+    s: int = 0,
+    e: int | None = None,
+) -> np.ndarray:
+    """Cyclic Thomas algorithm (Sherman–Morrison).
+    alpha = A[s, e]   (upper wrap-around corner)
+    beta  = A[e, s]   (lower wrap-around corner)
+    """
+    b = np.asarray(b, dtype=float)
+    n = b.size
+    if e is None:
+        e = n - 1
+    if x is None:
+        x = np.zeros(n, dtype=float)
+    else:
+        x = np.asarray(x, dtype=float)
+    gamma = -b[s]
+    bb = b.copy()
+    bb[s] = b[s] - gamma
+    bb[e] = b[e] - alpha * beta / gamma
+    solve_tridiagonal(a, bb, c, r, x=x, s=s, e=e)
+    u = np.zeros(n, dtype=float)
+    u[s] = gamma
+    u[e] = beta
+    z = np.zeros(n, dtype=float)
+    solve_tridiagonal(a, bb, c, u, x=z, s=s, e=e)
+    fact = (x[s] + alpha * x[e] / gamma) / (1.0 + z[s] + alpha * z[e] / gamma)
+    x[s : e + 1] -= fact * z[s : e + 1]
+    return x
+
+
+def solve_periodic_tridiagonal(
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    r: np.ndarray,
+) -> np.ndarray:
+    """Convenience wrapper matching build_periodic_tridiagonal_matrix."""
+    return solve_cyclic_tridiagonal(a, b, c, a[0], c[-1], r)
+
+
+# ------------------------------------------------------------------ #
+# Utility functions                                                  #
+# ------------------------------------------------------------------ #
 
 
 def compute_order_of_accuracy(h: np.ndarray, err: np.ndarray) -> np.ndarray:
